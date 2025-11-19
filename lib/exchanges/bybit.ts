@@ -119,6 +119,7 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
     // 参考: https://bybit-exchange.github.io/docs/v5/market/insurance
     // 返回格式: { "retCode": 0, "retMsg": "OK", "result": { "list": [{ "coin": "USDT", "symbols": "BTCUSDT,ETHUSDT", "balance": "...", "value": "..." }] } }
     // symbols 字段是逗号分隔的字符串，表示共享同一个保险池的合约
+    // 每个 symbol 应展示所属保险池的完整余额，而不是平均值
     const insuranceFundMap = new Map<string, number>();
     
     try {
@@ -140,16 +141,11 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
           if (balance > 0 && symbolsStr) {
             // symbols 是逗号分隔的字符串，如 "BTCUSDT,ETHUSDT,SOLUSDT"
             const poolSymbols = symbolsStr.split(',').map((s: string) => s.trim());
-            
-            // 将保险基金余额平均分配给该池中的所有 symbol
-            const balancePerSymbol = balance / poolSymbols.length;
-            
-            poolSymbols.forEach((symbol: string) => {
-              // 如果该 symbol 已经在我们的列表中，则设置保险基金余额
-              if (symbols.includes(symbol)) {
-                // 如果该 symbol 已经有保险基金余额，则累加（某些 symbol 可能在多个池中）
-                const currentBalance = insuranceFundMap.get(symbol) || 0;
-                insuranceFundMap.set(symbol, currentBalance + balancePerSymbol);
+
+            poolSymbols.forEach((poolSymbol: string) => {
+              if (symbols.includes(poolSymbol)) {
+                const currentBalance = insuranceFundMap.get(poolSymbol) || 0;
+                insuranceFundMap.set(poolSymbol, Math.max(currentBalance, balance));
               }
             });
           }

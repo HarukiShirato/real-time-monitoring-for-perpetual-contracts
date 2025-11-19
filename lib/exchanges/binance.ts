@@ -134,43 +134,45 @@ async function getBinanceOpenInterest(markPrices: Map<string, number>): Promise<
  * 获取 Binance 保险基金余额
  * API: GET /fapi/v1/insuranceBalance
  * 参考: https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/market-data/rest-api/Insurance-Fund-Balance
+ * 
+ * 注意：Binance 的保险基金按池划分，传入 symbol 参数才能得到对应的余额
  */
-async function getBinanceInsuranceFund(): Promise<Map<string, number>> {
-  try {
-    // 不传 symbol 参数，获取所有合约的保险基金余额
-    const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/insuranceBalance`);
-    const fundMap = new Map<string, number>();
+async function getBinanceInsuranceFund(symbols: string[]): Promise<Map<string, number>> {
+  const fundMap = new Map<string, number>();
 
-    // 如果返回的是数组格式（不传 symbol 时）
-    if (Array.isArray(response.data)) {
-      response.data.forEach((group: any) => {
-        if (group.symbols && group.assets) {
-          // 找到 USDT 资产
-          const usdtAsset = group.assets.find((a: any) => a.asset === 'USDT');
-          if (usdtAsset) {
-            const fundBalance = parseFloat(usdtAsset.marginBalance || '0');
-            // 将保险基金余额分配给该组的所有 symbol
-            group.symbols.forEach((symbol: string) => {
-              // 如果是永续合约（不包含下划线），则分配保险基金
-              // 注意：这里简化处理，将总余额平均分配给所有 symbol
-              // 实际应用中可能需要更复杂的分配逻辑
-              if (!symbol.includes('_')) {
-                fundMap.set(symbol, fundBalance / group.symbols.length);
-              }
-            });
+  try {
+    // 分批查询每个 symbol，避免触发速率限制
+    const batchSize = 10;
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize);
+      const promises = batch.map(async (symbol: string) => {
+        try {
+          const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/insuranceBalance`, {
+            params: { symbol },
+          });
+
+          if (response.data && response.data.assets) {
+            const usdtAsset = response.data.assets.find((a: any) => a.asset === 'USDT');
+            if (usdtAsset) {
+              const fundBalance = parseFloat(usdtAsset.marginBalance || '0');
+              return { symbol, balance: fundBalance };
+            }
           }
+
+          return { symbol, balance: 0 };
+        } catch (error) {
+          console.error(`获取 ${symbol} 保险基金余额失败:`, error);
+          return { symbol, balance: 0 };
         }
       });
-    } else if (response.data.assets) {
-      // 如果返回的是对象格式（传了 symbol 时）
-      const usdtAsset = response.data.assets.find((a: any) => a.asset === 'USDT');
-      if (usdtAsset && response.data.symbols) {
-        const fundBalance = parseFloat(usdtAsset.marginBalance || '0');
-        response.data.symbols.forEach((symbol: string) => {
-          if (!symbol.includes('_')) {
-            fundMap.set(symbol, fundBalance / response.data.symbols.length);
-          }
-        });
+
+      const results = await Promise.all(promises);
+      results.forEach(result => {
+        fundMap.set(result.symbol, result.balance);
+      });
+
+      if (i + batchSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
@@ -186,15 +188,15 @@ async function getBinanceInsuranceFund(): Promise<Map<string, number>> {
  */
 export async function getBinancePerps(): Promise<BinancePerpData[]> {
   try {
-    const [symbols, markPrices, lastPrices, insuranceFund] = await Promise.all([
+    const [symbols, markPrices, lastPrices] = await Promise.all([
       getBinanceSymbols(),
       getBinanceMarkPrices(),
       getBinanceLastPrices(),
-      getBinanceInsuranceFund(),
     ]);
 
     // 获取 OI 数据需要 markPrices，所以在这里调用
     const openInterest = await getBinanceOpenInterest(markPrices);
+    const insuranceFund = await getBinanceInsuranceFund(symbols);
 
     const results: BinancePerpData[] = [];
 
