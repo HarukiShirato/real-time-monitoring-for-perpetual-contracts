@@ -17,6 +17,12 @@ export interface PerpData {
   fundOiRatio: number; // 保险基金/OI 比例（百分比）
   marketCap: number | null; // 市值（USD）
   fdv: number | null; // 完全稀释估值（USD）
+  volume24h: number; // 24小时成交额 (USDT)
+  fundingRate: number; // 资金费率
+  nextFundingTime: number; // 下次资金费率结算时间 (timestamp)
+  fundingIntervalHours: number; // 资金费率结算间隔（小时）
+  coinName?: string; // 币种名称
+  coinImage?: string; // 币种图标
 }
 
 /**
@@ -52,6 +58,10 @@ export async function GET() {
         fundOiRatio,
         marketCap: null, // 异步填充
         fdv: null, // 异步填充
+        volume24h: item.volume24h,
+        fundingRate: item.fundingRate,
+        nextFundingTime: item.nextFundingTime,
+        fundingIntervalHours: item.fundingIntervalHours,
       });
     });
 
@@ -72,6 +82,10 @@ export async function GET() {
         fundOiRatio,
         marketCap: null, // 异步填充
         fdv: null, // 异步填充
+        volume24h: item.volume24h,
+        fundingRate: item.fundingRate,
+        nextFundingTime: item.nextFundingTime,
+        fundingIntervalHours: item.fundingIntervalHours,
       });
     });
 
@@ -85,6 +99,8 @@ export async function GET() {
       if (marketData) {
         perp.marketCap = marketData.marketCap;
         perp.fdv = marketData.fdv;
+        perp.coinName = marketData.name;
+        perp.coinImage = marketData.image;
       }
     });
 
@@ -108,4 +124,3 @@ export async function GET() {
     );
   }
 }
-

@@ -19,6 +19,11 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [minOi, setMinOi] = useState(0);
   const [minFundOiRatio, setMinFundOiRatio] = useState(0);
+  const [minMarketCap, setMinMarketCap] = useState(0);
+  const [minFdv, setMinFdv] = useState(0);
+  const [selectedIntervals, setSelectedIntervals] = useState<Set<number>>(
+    new Set([1, 4, 8])
+  );
 
   // 获取数据
   const fetchData = async () => {
@@ -32,11 +37,11 @@ export default function Home() {
         setData(result.data);
         setLastUpdate(new Date());
       } else {
-        setError(result.error || '获取数据失败');
+        setError(result.error || 'Failed to fetch data');
       }
     } catch (err) {
-      setError('网络请求失败');
-      console.error('获取数据失败:', err);
+      setError('Network request failed');
+      console.error('Failed to fetch data:', err);
     } finally {
       setLoading(false);
     }
@@ -79,9 +84,25 @@ export default function Home() {
         return false;
       }
 
+      // 结算间隔过滤
+      const interval = item.fundingIntervalHours || 8;
+      if (selectedIntervals.size > 0 && !selectedIntervals.has(interval)) {
+        return false;
+      }
+
+      // 市值过滤
+      if (minMarketCap > 0 && (!item.marketCap || item.marketCap < minMarketCap)) {
+        return false;
+      }
+
+      // FDV 过滤
+      if (minFdv > 0 && (!item.fdv || item.fdv < minFdv)) {
+        return false;
+      }
+
       return true;
     });
-  }, [data, selectedExchanges, searchQuery, minOi, minFundOiRatio]);
+  }, [data, selectedExchanges, searchQuery, minOi, minFundOiRatio, minMarketCap, minFdv, selectedIntervals]);
 
   // 计算最大值（用于过滤器）
   const maxOi = useMemo(() => {
@@ -106,81 +127,127 @@ export default function Home() {
     });
   };
 
+  const toggleInterval = (hours: number) => {
+    setSelectedIntervals(prev => {
+      const next = new Set(prev);
+      if (next.has(hours)) {
+        next.delete(hours);
+        if (next.size === 0) {
+          return new Set([1, 4, 8]);
+        }
+      } else {
+        next.add(hours);
+      }
+      return next;
+    });
+  };
+
   const formatTime = (date: Date | null) => {
     if (!date) return '';
-    return date.toLocaleTimeString('zh-CN', {
+    return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      hour12: false
     });
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* 标题 */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">永续合约数据仪表盘</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            实时监控 Binance 和 Bybit 永续合约数据
-          </p>
+    <div className="min-h-screen bg-brand-dark relative overflow-x-hidden selection:bg-brand-accent/30">
+       {/* Decorative Background Elements */}
+       <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-brand-surface/20 to-transparent pointer-events-none" />
+       <div className="absolute -top-24 -right-24 w-96 h-96 bg-brand-accent/5 rounded-full blur-3xl pointer-events-none" />
+       <div className="absolute top-48 -left-24 w-72 h-72 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+           <div>
+             <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-brand-text-primary via-brand-text-primary to-brand-text-secondary tracking-tight">
+               Perp Analytics
+             </h1>
+             <p className="mt-2 text-brand-text-secondary text-lg">
+               Real-time monitoring for Binance & Bybit perpetual contracts
+             </p>
+           </div>
+           
+           <div className="flex items-center gap-4">
+              <div className="text-right hidden md:block">
+                 <div className="text-xs text-brand-text-secondary uppercase tracking-wider">Last Update</div>
+                 <div className="text-brand-text-primary font-mono">{lastUpdate ? formatTime(lastUpdate) : '--:--:--'}</div>
+              </div>
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-brand-surface border border-brand-border rounded-lg text-brand-text-primary hover:bg-brand-surfaceHighlight hover:border-brand-accent/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group shadow-sm"
+              >
+                <svg className={`w-4 h-4 text-brand-text-secondary group-hover:text-brand-accent transition-colors ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+              </button>
+           </div>
         </div>
 
-        {/* 控制栏 */}
-        <div className="mb-6 space-y-4">
-          <div className="flex flex-wrap items-center gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <ExchangeFilter
-              exchanges={['Binance', 'Bybit', 'Bitget', 'Gate', 'OKX']}
-              selectedExchanges={selectedExchanges}
-              onToggle={toggleExchange}
-            />
-            <div className="flex-1" />
-            <SearchBox
-              value={searchQuery}
-              onChange={setSearchQuery}
-            />
+        {/* Controls */}
+        <div className="space-y-4 mb-8">
+          {/* Top Row: Filter & Search */}
+          <div className="glass-panel rounded-xl p-5 flex flex-col lg:flex-row items-start lg:items-center gap-6 justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 w-full lg:w-auto">
+              <ExchangeFilter
+                exchanges={['Binance', 'Bybit', 'Bitget', 'Gate', 'OKX']}
+                selectedExchanges={selectedExchanges}
+                onToggle={toggleExchange}
+              />
+              <div className="hidden sm:block w-px h-8 bg-brand-border" />
+              <SearchBox
+                value={searchQuery}
+                onChange={setSearchQuery}
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          {/* Bottom Row: Numerical Filters */}
+          <div className="glass-panel rounded-xl p-5 flex flex-wrap items-center gap-6">
             <FilterControls
               minOi={minOi}
               maxOi={maxOi}
               minFundOiRatio={minFundOiRatio}
               maxFundOiRatio={maxFundOiRatio}
+              minMarketCap={minMarketCap}
+              minFdv={minFdv}
+              selectedIntervals={selectedIntervals}
               onMinOiChange={setMinOi}
               onMinFundOiRatioChange={setMinFundOiRatio}
+              onMinMarketCapChange={setMinMarketCap}
+              onMinFdvChange={setMinFdv}
+              onToggleInterval={toggleInterval}
             />
+            
             <div className="flex-1" />
-            <button
-              onClick={fetchData}
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? '刷新中...' : '手动刷新'}
-            </button>
-            {lastUpdate && (
-              <span className="text-sm text-gray-600">
-                最近更新: {formatTime(lastUpdate)}
-              </span>
-            )}
+            
+            <div className="text-sm text-brand-text-secondary font-medium px-4 py-1.5 bg-brand-dark/50 rounded-md border border-brand-border/50">
+              Showing <span className="text-brand-text-primary">{filteredData.length}</span> / {data.length} pairs
+            </div>
           </div>
         </div>
 
-        {/* 错误提示 */}
+        {/* Error State */}
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 flex items-center gap-3">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
             {error}
           </div>
         )}
 
-        {/* 数据统计 */}
-        <div className="mb-4 text-sm text-gray-600">
-          显示 {filteredData.length} / {data.length} 条记录
-        </div>
-
-        {/* 表格 */}
+        {/* Table */}
         {loading && data.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">加载中...</div>
+          <div className="text-center py-24 text-brand-text-secondary">
+             <div className="animate-spin w-8 h-8 border-2 border-brand-accent border-t-transparent rounded-full mx-auto mb-4"></div>
+             Loading market data...
+          </div>
         ) : (
           <PerpTable data={filteredData} />
         )}
@@ -188,4 +255,3 @@ export default function Home() {
     </div>
   );
 }
-

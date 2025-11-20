@@ -2,7 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-white text-gray-900;
+:root {
+  --foreground-rgb: 234, 236, 239;
+  --background-start-rgb: 11, 14, 17;
+  --background-end-rgb: 11, 14, 17;
 }
 
+body {
+  @apply bg-brand-dark text-brand-text-primary antialiased font-sans;
+  background: #0B0E11;
+  min-height: 100vh;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-brand-dark;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-brand-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-brand-text-muted;
+}
+
+/* Utilities for crypto look */
+.glass-panel {
+  @apply bg-brand-surface/50 backdrop-blur-md border border-brand-border/50 shadow-xl;
+}
+
+.input-base {
+  @apply bg-brand-dark border border-brand-border text-brand-text-primary placeholder-brand-text-muted focus:border-brand-accent focus:ring-1 focus:ring-brand-accent outline-none transition-all duration-200;
+}
+
+.table-row-hover {
+  @apply hover:bg-brand-surfaceHighlight transition-colors duration-150;
+}

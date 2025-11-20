@@ -15,6 +15,10 @@ export interface BybitPerpData {
   openInterest: number; // 未平仓量（张数）
   openInterestValue: number; // 未平仓名义价值（USDT）
   insuranceFund: number; // 保险基金余额（USDT）
+  volume24h: number; // 24小时成交额 (USDT)
+  fundingRate: number; // 资金费率
+  nextFundingTime: number; // 下次资金费率结算时间 (timestamp)
+  fundingIntervalHours: number; // 资金费率结算间隔（小时）
 }
 
 const BYBIT_API_BASE = 'https://api.bybit.com';
@@ -32,18 +36,24 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
       },
     });
 
-    const symbols = instrumentsResponse.data.result.list
+    const symbolsData = instrumentsResponse.data.result.list
       .filter((item: any) => 
         item.status === 'Trading' &&
         item.symbol.endsWith('USDT') // 只保留USDT交易对
       )
-      .map((item: any) => item.symbol);
+      .map((item: any) => ({
+        symbol: item.symbol,
+        fundingInterval: parseInt(item.fundingInterval || '480'), // 分钟，默认 8 小时 (480 min)
+      }));
 
-    if (symbols.length === 0) {
+    if (symbolsData.length === 0) {
       return [];
     }
+    
+    // 提取纯 symbol 数组用于后续查询
+    const symbols = symbolsData.map((s: any) => s.symbol);
 
-    // 获取标记价格
+    // 获取标记价格、资金费率、成交量等
     const tickersResponse = await axios.get(`${BYBIT_API_BASE}/v5/market/tickers`, {
       params: {
         category: 'linear',
@@ -69,7 +79,7 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
     
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
-      const batchPromises = batch.map(async (symbol: string) => {
+      const batchPromises = batch.map(async (symbol) => {
         try {
           // 获取最新的 OI 数据（使用 5min 间隔，获取最新一条）
           const response = await axios.get(`${BYBIT_API_BASE}/v5/market/open-interest`, {
@@ -119,7 +129,7 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
     // 参考: https://bybit-exchange.github.io/docs/v5/market/insurance
     // 返回格式: { "retCode": 0, "retMsg": "OK", "result": { "list": [{ "coin": "USDT", "symbols": "BTCUSDT,ETHUSDT", "balance": "...", "value": "..." }] } }
     // symbols 字段是逗号分隔的字符串，表示共享同一个保险池的合约
-    // 每个 symbol 应展示所属保险池的完整余额，而不是平均值
+    // 注意：每个 symbol 应该显示整个池的余额，而不是平均分配
     const insuranceFundMap = new Map<string, number>();
     
     try {
@@ -141,11 +151,14 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
           if (balance > 0 && symbolsStr) {
             // symbols 是逗号分隔的字符串，如 "BTCUSDT,ETHUSDT,SOLUSDT"
             const poolSymbols = symbolsStr.split(',').map((s: string) => s.trim());
-
-            poolSymbols.forEach((poolSymbol: string) => {
-              if (symbols.includes(poolSymbol)) {
-                const currentBalance = insuranceFundMap.get(poolSymbol) || 0;
-                insuranceFundMap.set(poolSymbol, Math.max(currentBalance, balance));
+            
+            // 每个 symbol 显示整个池的余额（因为它们共享同一个保险池）
+            poolSymbols.forEach((symbol: string) => {
+              // 如果该 symbol 已经在我们的列表中，则设置保险基金余额
+              if (symbols.includes(symbol)) {
+                // 如果该 symbol 已经有保险基金余额，取最大值（某些 symbol 可能在多个池中，取最大的）
+                const currentBalance = insuranceFundMap.get(symbol) || 0;
+                insuranceFundMap.set(symbol, Math.max(currentBalance, balance));
               }
             });
           }
@@ -158,7 +171,7 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
 
     const results: BybitPerpData[] = [];
 
-    for (const symbol of symbols) {
+    for (const {symbol, fundingInterval} of symbolsData) {
       const ticker = tickersMap.get(symbol);
       if (!ticker) continue;
 
@@ -175,6 +188,10 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
           openInterest: oi.contracts,
           openInterestValue: oi.value,
           insuranceFund: fund,
+          volume24h: parseFloat(ticker.turnover24h || '0'), // Bybit linear turnover is Quote Volume (USDT)
+          fundingRate: parseFloat(ticker.fundingRate || '0'),
+          nextFundingTime: parseInt(ticker.nextFundingTime || '0'),
+          fundingIntervalHours: fundingInterval / 60
         });
       }
     }
@@ -185,4 +202,3 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
     return [];
   }
 }
-

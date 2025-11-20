@@ -9,6 +9,8 @@ import axios from 'axios';
 export interface MarketData {
   marketCap: number | null; // 市值（USD）
   fdv: number | null; // 完全稀释估值（USD）
+  name?: string; // 币种名称 (e.g. Bitcoin)
+  image?: string; // 币种图标 URL
 }
 
 const COINGECKO_API_BASE = 'https://api.coingecko.com/api/v3';
@@ -152,6 +154,8 @@ async function getCoinMarketData(coinId: string): Promise<MarketData> {
       return {
         marketCap: data.market_cap || null,
         fdv: data.fully_diluted_valuation || null,
+        name: data.name,
+        image: data.image
       };
     }
 
@@ -201,6 +205,8 @@ async function getBatchMarketData(coinIds: string[]): Promise<Map<string, Market
         resultMap.set(coinId, {
           marketCap: data.market_cap || null,
           fdv: data.fully_diluted_valuation || null,
+          name: data.name,
+          image: data.image
         });
       } else {
         resultMap.set(coinId, { marketCap: null, fdv: null });

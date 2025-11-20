@@ -15,6 +15,10 @@ export interface BinancePerpData {
   openInterest: number; // 未平仓量（张数）
   openInterestValue: number; // 未平仓名义价值（USDT）
   insuranceFund: number; // 保险基金余额（USDT）
+  volume24h: number; // 24小时成交额 (USDT)
+  fundingRate: number; // 资金费率
+  nextFundingTime: number; // 下次资金费率结算时间 (timestamp)
+  fundingIntervalHours: number; // 资金费率结算间隔（小时）
 }
 
 const BINANCE_API_BASE = 'https://fapi.binance.com';
@@ -22,7 +26,7 @@ const BINANCE_API_BASE = 'https://fapi.binance.com';
 /**
  * 获取 Binance 永续合约列表
  */
-async function getBinanceSymbols(): Promise<string[]> {
+async function getBinanceSymbols(): Promise<{symbol: string, fundingIntervalHours: number}[]> {
   try {
     const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/exchangeInfo`);
     return response.data.symbols
@@ -31,7 +35,11 @@ async function getBinanceSymbols(): Promise<string[]> {
         s.status === 'TRADING' &&
         s.symbol.endsWith('USDT') // 只保留USDT交易对
       )
-      .map((s: any) => s.symbol);
+      .map((s: any) => ({
+        symbol: s.symbol,
+        // 如果没有 fundingIntervalHours，默认 8 小时
+        fundingIntervalHours: s.fundingIntervalHours || 8
+      }));
   } catch (error) {
     console.error('获取 Binance 合约列表失败:', error);
     return [];
@@ -39,59 +47,61 @@ async function getBinanceSymbols(): Promise<string[]> {
 }
 
 /**
- * 获取 Binance 标记价格
+ * 获取 Binance 标记价格及资金费率信息
  */
-async function getBinanceMarkPrices(): Promise<Map<string, number>> {
+async function getBinancePremiumIndex(): Promise<Map<string, { markPrice: number; fundingRate: number; nextFundingTime: number }>> {
   try {
     const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/premiumIndex`);
-    const prices = new Map<string, number>();
+    const data = new Map<string, { markPrice: number; fundingRate: number; nextFundingTime: number }>();
     response.data.forEach((item: any) => {
-      prices.set(item.symbol, parseFloat(item.markPrice));
+      data.set(item.symbol, {
+        markPrice: parseFloat(item.markPrice),
+        fundingRate: parseFloat(item.lastFundingRate),
+        nextFundingTime: parseInt(item.nextFundingTime)
+      });
     });
-    return prices;
+    return data;
   } catch (error) {
-    console.error('获取 Binance 标记价格失败:', error);
+    console.error('获取 Binance Premium Index 失败:', error);
     return new Map();
   }
 }
 
 /**
- * 获取 Binance 最新成交价
+ * 获取 Binance 24小时行情（包含价格和成交量）
  */
-async function getBinanceLastPrices(): Promise<Map<string, number>> {
+async function getBinance24hrTicker(): Promise<Map<string, { lastPrice: number; quoteVolume: number }>> {
   try {
     const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/ticker/24hr`);
-    const prices = new Map<string, number>();
+    const data = new Map<string, { lastPrice: number; quoteVolume: number }>();
     response.data.forEach((item: any) => {
-      prices.set(item.symbol, parseFloat(item.lastPrice));
+      data.set(item.symbol, {
+        lastPrice: parseFloat(item.lastPrice),
+        quoteVolume: parseFloat(item.quoteVolume) // quoteVolume is USDT volume for USDT pairs
+      });
     });
-    return prices;
+    return data;
   } catch (error) {
-    console.error('获取 Binance 最新价格失败:', error);
+    console.error('获取 Binance 24hr Ticker 失败:', error);
     return new Map();
   }
 }
 
 /**
  * 获取 Binance 未平仓量
- * API: GET /fapi/v1/openInterest
- * 参考: https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/market-data/rest-api/Open-Interest
- * 返回格式: { "openInterest": "10659.509", "symbol": "BTCUSDT", "time": 1589437530011 }
- * 注意：只返回 openInterest（张数），需要结合标记价格计算名义价值
  */
-async function getBinanceOpenInterest(markPrices: Map<string, number>): Promise<Map<string, { contracts: number; value: number }>> {
+async function getBinanceOpenInterest(symbols: {symbol: string}[], markPrices: Map<string, number>): Promise<Map<string, { contracts: number; value: number }>> {
   try {
-    const symbols = await getBinanceSymbols();
     const oiMap = new Map<string, { contracts: number; value: number }>();
     
     // 批量获取 OI 数据，平衡速度和速率限制
     // Binance API 限制：每秒最多 10 次请求（权重限制）
-    const batchSize = 15; // 增加批次大小到 15
-    const delayBetweenBatches = 200; // 减少延迟到 200ms
+    const batchSize = 15; 
+    const delayBetweenBatches = 200; 
     
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
-      const promises = batch.map(async (symbol) => {
+      const promises = batch.map(async ({symbol}) => {
         try {
           const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/openInterest`, {
             params: { symbol }
@@ -132,25 +142,24 @@ async function getBinanceOpenInterest(markPrices: Map<string, number>): Promise<
 
 /**
  * 获取 Binance 保险基金余额
- * API: GET /fapi/v1/insuranceBalance
- * 参考: https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/market-data/rest-api/Insurance-Fund-Balance
- * 
- * 注意：Binance 的保险基金按池划分，传入 symbol 参数才能得到对应的余额
  */
-async function getBinanceInsuranceFund(symbols: string[]): Promise<Map<string, number>> {
+async function getBinanceInsuranceFund(symbols: {symbol: string}[]): Promise<Map<string, number>> {
   const fundMap = new Map<string, number>();
 
   try {
-    // 分批查询每个 symbol，避免触发速率限制
+    // 为每个 symbol 单独查询保险基金余额
+    // 批量处理，避免速率限制
     const batchSize = 10;
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
-      const promises = batch.map(async (symbol: string) => {
+      const promises = batch.map(async ({symbol}) => {
         try {
+          // 为每个 symbol 单独查询
           const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/insuranceBalance`, {
-            params: { symbol },
+            params: { symbol }
           });
 
+          // 如果返回的是对象格式（传了 symbol 时）
           if (response.data && response.data.assets) {
             const usdtAsset = response.data.assets.find((a: any) => a.asset === 'USDT');
             if (usdtAsset) {
@@ -158,7 +167,6 @@ async function getBinanceInsuranceFund(symbols: string[]): Promise<Map<string, n
               return { symbol, balance: fundBalance };
             }
           }
-
           return { symbol, balance: 0 };
         } catch (error) {
           console.error(`获取 ${symbol} 保险基金余额失败:`, error);
@@ -171,6 +179,7 @@ async function getBinanceInsuranceFund(symbols: string[]): Promise<Map<string, n
         fundMap.set(result.symbol, result.balance);
       });
 
+      // 避免速率限制，批次之间添加延迟
       if (i + batchSize < symbols.length) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
@@ -188,32 +197,47 @@ async function getBinanceInsuranceFund(symbols: string[]): Promise<Map<string, n
  */
 export async function getBinancePerps(): Promise<BinancePerpData[]> {
   try {
-    const [symbols, markPrices, lastPrices] = await Promise.all([
+    const [symbolsData, premiumIndexMap, ticker24hMap] = await Promise.all([
       getBinanceSymbols(),
-      getBinanceMarkPrices(),
-      getBinanceLastPrices(),
+      getBinancePremiumIndex(),
+      getBinance24hrTicker(),
     ]);
 
+    // 提取仅用于 OI 计算的 markPrices Map
+    const markPricesForOi = new Map<string, number>();
+    premiumIndexMap.forEach((value, key) => {
+      markPricesForOi.set(key, value.markPrice);
+    });
+
     // 获取 OI 数据需要 markPrices，所以在这里调用
-    const openInterest = await getBinanceOpenInterest(markPrices);
-    const insuranceFund = await getBinanceInsuranceFund(symbols);
+    const openInterest = await getBinanceOpenInterest(symbolsData, markPricesForOi);
+    
+    // 获取保险基金数据需要 symbols，所以在这里调用
+    const insuranceFund = await getBinanceInsuranceFund(symbolsData);
 
     const results: BinancePerpData[] = [];
 
-    for (const symbol of symbols) {
-      const markPrice = markPrices.get(symbol) || 0;
-      const lastPrice = lastPrices.get(symbol) || 0;
+    for (const {symbol, fundingIntervalHours} of symbolsData) {
+      const premiumData = premiumIndexMap.get(symbol);
+      const tickerData = ticker24hMap.get(symbol);
+      
+      if (!premiumData || !tickerData) continue;
+
       const oi = openInterest.get(symbol);
       const fund = insuranceFund.get(symbol) || 0;
 
-      if (oi && (markPrice > 0 || lastPrice > 0)) {
+      if (oi) {
         results.push({
           symbol,
-          markPrice,
-          lastPrice,
+          markPrice: premiumData.markPrice,
+          lastPrice: tickerData.lastPrice,
           openInterest: oi.contracts,
           openInterestValue: oi.value,
           insuranceFund: fund,
+          volume24h: tickerData.quoteVolume,
+          fundingRate: premiumData.fundingRate,
+          nextFundingTime: premiumData.nextFundingTime,
+          fundingIntervalHours
         });
       }
     }
@@ -224,4 +248,3 @@ export async function getBinancePerps(): Promise<BinancePerpData[]> {
     return [];
   }
 }
-
