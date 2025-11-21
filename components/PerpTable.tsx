@@ -123,6 +123,8 @@ export default function PerpTable({ data }: PerpTableProps) {
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [constituents, setConstituents] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(1);
 
   const handleSort = (key: SortKey) => {
     if (key === 'none') {
@@ -206,6 +208,18 @@ export default function PerpTable({ data }: PerpTableProps) {
     return next;
   }, [data, sortKey, sortOrder]);
 
+  const pageCount = Math.max(1, Math.ceil(sortedData.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+
+  const pagedData = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedData.slice(start, start + pageSize);
+  }, [sortedData, pageSize, currentPage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, data, sortKey, sortOrder]);
+
   const formatNumber = (num: number | null, prefix: string = '', suffix: string = '', decimals: number = 2) => {
      if (num === null || num === undefined) return '—';
      
@@ -281,14 +295,14 @@ export default function PerpTable({ data }: PerpTableProps) {
                 </td>
               </tr>
             ) : (
-              sortedData.map((item, index) => {
+              pagedData.map((item) => {
                 const apr = calculateApr(item.fundingRate, item.fundingIntervalHours);
                 const isExpanded = expandedRow === `${item.symbol}-${item.exchange}`;
                 
                 return (
                   <>
                     <tr 
-                      key={`${item.symbol}-${item.exchange}-${index}`} 
+                      key={`${item.symbol}-${item.exchange}`} 
                       className={`transition-colors duration-150 group ${isExpanded ? 'bg-brand-surfaceHighlight/30' : 'hover:bg-brand-surfaceHighlight/30'}`}
                     >
                     <td className="px-4 py-3 whitespace-nowrap pl-6">
@@ -445,6 +459,52 @@ export default function PerpTable({ data }: PerpTableProps) {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-brand-border text-sm text-brand-text-secondary">
+        <div className="flex items-center gap-2">
+          <span>Rows per page</span>
+          <select
+            value={pageSize}
+            onChange={e => setPageSize(Number(e.target.value))}
+            className="bg-brand-surface border border-brand-border rounded px-2 py-1 text-brand-text-primary text-sm"
+          >
+            {[25, 50, 100, 200].map(size => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-brand-text-muted">
+            {sortedData.length === 0
+              ? '0 of 0'
+              : `${(currentPage - 1) * pageSize + 1}–${Math.min(
+                  currentPage * pageSize,
+                  sortedData.length
+                )} of ${sortedData.length}`}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-2 py-1 border border-brand-border rounded text-xs disabled:opacity-50 hover:border-brand-accent/40 transition-colors"
+            >
+              Prev
+            </button>
+            <span className="text-xs text-brand-text-primary">
+              {currentPage}/{pageCount}
+            </span>
+            <button
+              onClick={() => setPage(prev => Math.min(pageCount, prev + 1))}
+              disabled={currentPage === pageCount || sortedData.length === 0}
+              className="px-2 py-1 border border-brand-border rounded text-xs disabled:opacity-50 hover:border-brand-accent/40 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

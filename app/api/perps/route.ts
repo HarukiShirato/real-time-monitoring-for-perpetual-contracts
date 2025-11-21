@@ -3,6 +3,10 @@ import { getBinancePerps } from '@/lib/exchanges/binance';
 import { getBybitPerps } from '@/lib/exchanges/bybit';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 
+// 简单的进程级缓存，降低对上游 API 的压力
+const CACHE_TTL_MS = 60 * 1000; // 60s
+let cachedPerps: { data: PerpData[]; timestamp: number } | null = null;
+
 /**
  * 统一的永续合约数据接口
  * 聚合 Binance、Bybit 和市值数据
@@ -31,6 +35,23 @@ export interface PerpData {
  */
 export async function GET() {
   try {
+    const now = Date.now();
+    if (cachedPerps && now - cachedPerps.timestamp < CACHE_TTL_MS) {
+      return NextResponse.json(
+        {
+          success: true,
+          data: cachedPerps.data,
+          timestamp: cachedPerps.timestamp,
+          cached: true,
+        },
+        {
+          headers: {
+            'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
+          },
+        }
+      );
+    }
+
     // 并行获取各交易所数据
     const [binanceData, bybitData] = await Promise.all([
       getBinancePerps(),
@@ -106,6 +127,9 @@ export async function GET() {
 
     // 转换为数组
     const result = Array.from(perpsMap.values());
+
+    // 写入缓存
+    cachedPerps = { data: result, timestamp: now };
 
     return NextResponse.json({
       success: true,
