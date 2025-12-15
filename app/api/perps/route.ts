@@ -27,6 +27,8 @@ export interface PerpData {
   fundingIntervalHours: number; // 资金费率结算间隔（小时）
   coinName?: string; // 币种名称
   coinImage?: string; // 币种图标
+  hasFundingData?: boolean; // 是否拿到 funding/premium 数据
+  hasOpenInterestData?: boolean; // 是否拿到 OI 数据
 }
 
 /**
@@ -83,6 +85,8 @@ export async function GET() {
         fundingRate: item.fundingRate,
         nextFundingTime: item.nextFundingTime,
         fundingIntervalHours: item.fundingIntervalHours,
+        hasFundingData: item.hasFundingData ?? true,
+        hasOpenInterestData: item.hasOpenInterestData ?? true,
       });
     });
 
@@ -107,6 +111,8 @@ export async function GET() {
         fundingRate: item.fundingRate,
         nextFundingTime: item.nextFundingTime,
         fundingIntervalHours: item.fundingIntervalHours,
+        hasFundingData: item.hasFundingData ?? true,
+        hasOpenInterestData: item.hasOpenInterestData ?? true,
       });
     });
 

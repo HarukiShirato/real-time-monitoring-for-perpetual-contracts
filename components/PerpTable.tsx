@@ -19,6 +19,8 @@ export interface PerpData {
   fundingIntervalHours: number;
   coinName?: string;
   coinImage?: string;
+  hasFundingData?: boolean;
+  hasOpenInterestData?: boolean;
 }
 
 type SortKey = keyof PerpData | 'apr' | 'none';
@@ -298,6 +300,7 @@ export default function PerpTable({ data }: PerpTableProps) {
               pagedData.map((item) => {
                 const apr = calculateApr(item.fundingRate, item.fundingIntervalHours);
                 const isExpanded = expandedRow === `${item.symbol}-${item.exchange}`;
+                const isPartial = item.hasFundingData === false || item.hasOpenInterestData === false;
                 
                 return (
                   <>
@@ -324,7 +327,17 @@ export default function PerpTable({ data }: PerpTableProps) {
                       </div>
                     </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary font-mono">
-                        {item.symbol}
+                        <div className="flex items-center gap-2">
+                          <span>{item.symbol}</span>
+                          {isPartial && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border border-brand-border text-brand-text-muted bg-brand-surfaceHighlight/60"
+                              title="Missing funding or open interest data from exchange; showing partial defaults."
+                            >
+                              partial
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`

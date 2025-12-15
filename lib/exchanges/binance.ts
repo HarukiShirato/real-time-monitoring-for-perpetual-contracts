@@ -19,6 +19,8 @@ export interface BinancePerpData {
   fundingRate: number; // 资金费率
   nextFundingTime: number; // 下次资金费率结算时间 (timestamp)
   fundingIntervalHours: number; // 资金费率结算间隔（小时）
+  hasFundingData?: boolean; // 是否拿到 funding/premium 数据
+  hasOpenInterestData?: boolean; // 是否拿到 OI 数据
 }
 
 const BINANCE_API_BASE = 'https://fapi.binance.com';
@@ -259,6 +261,11 @@ export async function getBinancePerps(): Promise<BinancePerpData[]> {
     premiumIndexMap.forEach((value, key) => {
       markPricesForOi.set(key, value.markPrice);
     });
+    ticker24hMap.forEach((value, key) => {
+      if (!markPricesForOi.has(key)) {
+        markPricesForOi.set(key, value.lastPrice);
+      }
+    });
 
     // 获取 OI 数据需要 markPrices，所以在这里调用
     const openInterest = await getBinanceOpenInterest(symbolsData, markPricesForOi);
@@ -271,8 +278,9 @@ export async function getBinancePerps(): Promise<BinancePerpData[]> {
     for (const {symbol, fundingIntervalHours} of symbolsData) {
       const premiumData = premiumIndexMap.get(symbol);
       const tickerData = ticker24hMap.get(symbol);
-      
-      if (!premiumData || !tickerData) continue;
+
+      // 至少需要价格数据（premium 或 ticker）才展示
+      if (!premiumData && !tickerData) continue;
 
       const oi = openInterest.get(symbol);
       const fund = insuranceFund.get(symbol) || 0;
@@ -282,20 +290,20 @@ export async function getBinancePerps(): Promise<BinancePerpData[]> {
         fundingIntervalHours ??
         8;
 
-      if (oi) {
-        results.push({
-          symbol,
-          markPrice: premiumData.markPrice,
-          lastPrice: tickerData.lastPrice,
-          openInterest: oi.contracts,
-          openInterestValue: oi.value,
-          insuranceFund: fund,
-          volume24h: tickerData.quoteVolume,
-          fundingRate: premiumData.fundingRate,
-          nextFundingTime: premiumData.nextFundingTime,
-          fundingIntervalHours: intervalHours
-        });
-      }
+      results.push({
+        symbol,
+        markPrice: premiumData?.markPrice ?? tickerData?.lastPrice ?? 0,
+        lastPrice: tickerData?.lastPrice ?? premiumData?.markPrice ?? 0,
+        openInterest: oi?.contracts ?? 0,
+        openInterestValue: oi?.value ?? 0,
+        insuranceFund: fund,
+        volume24h: tickerData?.quoteVolume ?? 0,
+        fundingRate: premiumData?.fundingRate ?? 0,
+        nextFundingTime: premiumData?.nextFundingTime ?? 0,
+        fundingIntervalHours: intervalHours,
+        hasFundingData: !!premiumData,
+        hasOpenInterestData: !!oi,
+      });
     }
 
     return results;
