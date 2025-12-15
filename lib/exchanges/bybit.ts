@@ -19,6 +19,8 @@ export interface BybitPerpData {
   fundingRate: number; // 资金费率
   nextFundingTime: number; // 下次资金费率结算时间 (timestamp)
   fundingIntervalHours: number; // 资金费率结算间隔（小时）
+  hasFundingData?: boolean; // 是否拿到 funding/premium 数据
+  hasOpenInterestData?: boolean; // 是否拿到 OI 数据
 }
 
 const BYBIT_API_BASE = 'https://api.bybit.com';
@@ -180,20 +182,21 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
       const oi = oiMap.get(symbol);
       const fund = insuranceFundMap.get(symbol) || 0;
 
-      if (oi && (markPrice > 0 || lastPrice > 0)) {
-        results.push({
-          symbol,
-          markPrice,
-          lastPrice,
-          openInterest: oi.contracts,
-          openInterestValue: oi.value,
-          insuranceFund: fund,
-          volume24h: parseFloat(ticker.turnover24h || '0'), // Bybit linear turnover is Quote Volume (USDT)
-          fundingRate: parseFloat(ticker.fundingRate || '0'),
-          nextFundingTime: parseInt(ticker.nextFundingTime || '0'),
-          fundingIntervalHours: fundingInterval / 60
-        });
-      }
+      // 允许缺少 OI/funding 的新合约以默认值展示
+      results.push({
+        symbol,
+        markPrice,
+        lastPrice,
+        openInterest: oi?.contracts ?? 0,
+        openInterestValue: oi?.value ?? 0,
+        insuranceFund: fund,
+        volume24h: parseFloat(ticker.turnover24h || '0'), // Bybit linear turnover is Quote Volume (USDT)
+        fundingRate: parseFloat(ticker.fundingRate || '0'),
+        nextFundingTime: parseInt(ticker.nextFundingTime || '0'),
+        fundingIntervalHours: fundingInterval / 60,
+        hasFundingData: typeof ticker.fundingRate === 'string' || typeof ticker.fundingRate === 'number',
+        hasOpenInterestData: !!oi
+      });
     }
 
     return results;
