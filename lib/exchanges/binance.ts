@@ -197,54 +197,24 @@ async function getBinanceInsuranceFund(symbols: {symbol: string}[]): Promise<Map
   const fundMap = new Map<string, number>();
 
   try {
-    // 为每个 symbol 单独查询保险基金余额
-    // 批量处理，避免速率限制
-    const batchSize = 10;
-    for (let i = 0; i < symbols.length; i += batchSize) {
-      const batch = symbols.slice(i, i + batchSize);
-      const promises = batch.map(async ({symbol}) => {
-        try {
-          // 为每个 symbol 单独查询
-          const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/insuranceBalance`, {
-            params: { symbol }
-          });
+    // Binance USDT-M insurance fund is shared; fetch once and map the USDT balance to all symbols.
+    const response = await axios.get(`${BINANCE_API_BASE}/fapi/v1/insuranceBalance`);
+    if (Array.isArray(response.data)) {
+      const usdtAsset = response.data.find((a: any) => a.asset === 'USDT');
+      const fundBalance = parseFloat(usdtAsset?.balance || usdtAsset?.marginBalance || '0');
 
-          // 如果返回的是对象格式（传了 symbol 时）
-          if (response.data && response.data.assets) {
-            const usdtAsset = response.data.assets.find((a: any) => a.asset === 'USDT');
-            if (usdtAsset) {
-              const fundBalance = parseFloat(usdtAsset.marginBalance || '0');
-              return { symbol, balance: fundBalance };
-            }
-          }
-          return { symbol, balance: 0 };
-        } catch (error) {
-          console.error(`获取 ${symbol} 保险基金余额失败:`, error);
-          return { symbol, balance: 0 };
-        }
+      symbols.forEach(({ symbol }) => {
+        fundMap.set(symbol, fundBalance);
       });
-
-      const results = await Promise.all(promises);
-      results.forEach(result => {
-        fundMap.set(result.symbol, result.balance);
-      });
-
-      // 避免速率限制，批次之间添加延迟
-      if (i + batchSize < symbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
     }
 
     return fundMap;
   } catch (error) {
-    console.error('获取 Binance 保险基金余额失败:', error);
+    console.error('?????? Binance ????????????????????????:', error);
     return new Map();
   }
 }
 
-/**
- * 获取所有 Binance 永续合约数据
- */
 export async function getBinancePerps(): Promise<BinancePerpData[]> {
   try {
     const [symbolsData, premiumIndexMap, ticker24hMap] = await Promise.all([
