@@ -7,6 +7,7 @@ interface FilterControlsProps {
   maxFundOiRatio: number;
   minMarketCap: number;
   minFdv: number;
+  availableIntervals: number[];
   selectedIntervals: Set<number>;
   onMinOiChange: (value: number) => void;
   onMinFundOiRatioChange: (value: number) => void;
@@ -22,6 +23,7 @@ export default function FilterControls({
   maxFundOiRatio,
   minMarketCap,
   minFdv,
+  availableIntervals,
   selectedIntervals,
   onMinOiChange,
   onMinFundOiRatioChange,
@@ -122,7 +124,7 @@ export default function FilterControls({
           Funding Interval
         </label>
         <div className="flex items-center gap-2 flex-wrap">
-          {[1, 4, 8].map(interval => {
+          {(availableIntervals.length > 0 ? availableIntervals : [1, 4, 8]).map(interval => {
             const active = selectedIntervals.has(interval);
             return (
               <button

@@ -21,9 +21,7 @@ export default function Home() {
   const [minFundOiRatio, setMinFundOiRatio] = useState(0);
   const [minMarketCap, setMinMarketCap] = useState(0);
   const [minFdv, setMinFdv] = useState(0);
-  const [selectedIntervals, setSelectedIntervals] = useState<Set<number>>(
-    new Set([1, 4, 8])
-  );
+  const [selectedIntervals, setSelectedIntervals] = useState<Set<number>>(new Set());
 
   // 获取数据
   const fetchData = async () => {
@@ -132,15 +130,20 @@ export default function Home() {
       const next = new Set(prev);
       if (next.has(hours)) {
         next.delete(hours);
-        if (next.size === 0) {
-          return new Set([1, 4, 8]);
-        }
       } else {
         next.add(hours);
       }
       return next;
     });
   };
+
+  const availableIntervals = useMemo(() => {
+    const intervals = new Set<number>();
+    data.forEach(item => {
+      intervals.add(item.fundingIntervalHours || 8);
+    });
+    return Array.from(intervals).sort((a, b) => a - b);
+  }, [data]);
 
   const formatTime = (date: Date | null) => {
     if (!date) return '';
@@ -216,6 +219,7 @@ export default function Home() {
               maxFundOiRatio={maxFundOiRatio}
               minMarketCap={minMarketCap}
               minFdv={minFdv}
+              availableIntervals={availableIntervals}
               selectedIntervals={selectedIntervals}
               onMinOiChange={setMinOi}
               onMinFundOiRatioChange={setMinFundOiRatio}
