@@ -56,6 +56,8 @@ export async function GET() {
       getOkxEarnProducts(),
     ]);
 
+    console.log(`[earn] Binance: ${binanceProducts.length}, Bybit: ${bybitProducts.length}, OKX: ${okxProducts.length}`);
+
     // 按 asset 聚合 earn rates（同交易所去重，取最高 APR）
     // 过滤掉衍生资产（如 BETH 是 Binance 的质押 ETH，ETH 已覆盖）
     const EXCLUDED_ASSETS = new Set(['BETH']);
@@ -160,6 +162,11 @@ export async function GET() {
       success: true,
       data: rows,
       timestamp: now,
+      debug: {
+        binance: binanceProducts.length,
+        bybit: bybitProducts.length,
+        okx: okxProducts.length,
+      },
     });
   } catch (error) {
     console.error('获取活期理财数据失败:', error);
