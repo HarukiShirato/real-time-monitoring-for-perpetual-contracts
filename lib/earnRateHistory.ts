@@ -52,10 +52,8 @@ function calcAvgApr(records: { time: number; rate: number }[], days: number): nu
 
   const avgRate = recent.reduce((sum, r) => sum + r.rate, 0) / recent.length;
 
-  // OKX lending rate 是每日利率（小数），年化 = dailyRate * 365
-  // 如果返回的是每小时利率，需要 * 24 * 365
-  // 根据 OKX 文档，rate 是借贷利率（日利率形式）
-  return avgRate * 365;
+  // OKX lending-rate-history 的 rate 已经是年化利率（小数形式），无需再乘 365
+  return avgRate;
 }
 
 /**
