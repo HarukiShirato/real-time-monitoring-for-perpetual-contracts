@@ -4,6 +4,7 @@ import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 import { batchGetFundingStats } from '@/lib/fundingAggregator';
+import { batchGetEarnRateHistory } from '@/lib/earnRateHistory';
 
 export interface EarnRate {
   exchange: string;
@@ -21,6 +22,8 @@ export interface CombinedEarnRow {
   earnRates: EarnRate[];
   bestEarnApr: number;
   bestEarnExchange: string;
+  bestEarn3d: number;       // OKX 历史 3 天平均 earn APR
+  bestEarn7d: number;       // OKX 历史 7 天平均 earn APR
   funding: FundingRate[];
   bestFunding3d: number;
   bestFunding7d: number;
@@ -74,12 +77,13 @@ export async function GET() {
 
     const allAssets = Array.from(assetMap.keys());
 
-    // 获取资金费率历史（只对有 earn 产品的 asset 查询）
-    const fundingMap = await batchGetFundingStats(allAssets);
-
-    // 获取市值数据
+    // 并行获取：资金费率历史 + 活期利率历史 + 市值数据
     const symbols = allAssets.map(a => a + 'USDT');
-    const marketDataMap = await getBatchMarketDataForSymbols(symbols);
+    const [fundingMap, earnHistoryMap, marketDataMap] = await Promise.all([
+      batchGetFundingStats(allAssets),
+      batchGetEarnRateHistory(allAssets),
+      getBatchMarketDataForSymbols(symbols),
+    ]);
 
     // 构建 combined 行
     const rows: CombinedEarnRow[] = [];
@@ -125,6 +129,28 @@ export async function GET() {
         }
       }
 
+      // 历史活期利率（OKX 公开接口）
+      // Binance/Bybit 无公开历史接口，用当前 APR 做 fallback
+      const earnHistory = earnHistoryMap.get(asset);
+      const okx3d = earnHistory?.okx3d || 0;
+      const okx7d = earnHistory?.okx7d || 0;
+
+      // 各交易所历史 earn rate：OKX 用历史，Binance/Bybit 用当前 APR
+      const earnRates3d: number[] = [];
+      const earnRates7d: number[] = [];
+      for (const er of earnRates) {
+        if (er.exchange === 'OKX') {
+          earnRates3d.push(okx3d || er.apr);
+          earnRates7d.push(okx7d || er.apr);
+        } else {
+          // Binance/Bybit 无历史接口，用当前 APR
+          earnRates3d.push(er.apr);
+          earnRates7d.push(er.apr);
+        }
+      }
+      const bestEarn3d = earnRates3d.length > 0 ? Math.max(...earnRates3d) : 0;
+      const bestEarn7d = earnRates7d.length > 0 ? Math.max(...earnRates7d) : 0;
+
       // 市值
       const md = marketDataMap.get(asset + 'USDT');
 
@@ -133,13 +159,15 @@ export async function GET() {
         earnRates,
         bestEarnApr,
         bestEarnExchange,
+        bestEarn3d,
+        bestEarn7d,
         funding,
         bestFunding3d,
         bestFunding7d,
         bestFundingExchange3d,
         bestFundingExchange7d,
-        combined3d: bestEarnApr + bestFunding3d,
-        combined7d: bestEarnApr + bestFunding7d,
+        combined3d: bestEarn3d + bestFunding3d,
+        combined7d: bestEarn7d + bestFunding7d,
         coinImage: md?.image,
         coinName: md?.name,
         marketCap: md?.marketCap ?? null,

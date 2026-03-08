@@ -18,6 +18,8 @@ export interface CombinedEarnRow {
   earnRates: EarnRate[];
   bestEarnApr: number;
   bestEarnExchange: string;
+  bestEarn3d: number;
+  bestEarn7d: number;
   funding: FundingRate[];
   bestFunding3d: number;
   bestFunding7d: number;
