@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       const response = await axios.get('https://fapi.binance.com/fapi/v1/fundingRate', {
         params: {
           symbol: symbol,
-          limit: 100 // Get last 100 periods
+          limit: 200 // 7d × 24h/1h = 168, 需要至少 168 条
         }
       });
       
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
         params: {
           category: 'linear',
           symbol: symbol,
-          limit: 100
+          limit: 200
         }
       });
 

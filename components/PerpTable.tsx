@@ -462,6 +462,35 @@ export default function PerpTable({ data }: PerpTableProps) {
                                 </div>
                               </div>
                             )}
+
+                            {/* 24h / 7d 累计资金费率 */}
+                            {historyData.length > 0 && (() => {
+                              const now = Date.now();
+                              const ms24h = 24 * 60 * 60 * 1000;
+                              const ms7d = 7 * 24 * 60 * 60 * 1000;
+                              const sum24h = historyData
+                                .filter(d => now - d.time < ms24h)
+                                .reduce((s, d) => s + d.rate, 0);
+                              const sum7d = historyData
+                                .filter(d => now - d.time < ms7d)
+                                .reduce((s, d) => s + d.rate, 0);
+                              return (
+                                <div className="w-full lg:w-40 bg-brand-dark/40 border border-brand-border/60 rounded-xl p-4 flex flex-col justify-center gap-4">
+                                  <div>
+                                    <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-1">24H Rate</div>
+                                    <div className={`text-lg font-mono font-semibold ${sum24h >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>
+                                      {(sum24h * 100).toFixed(4)}%
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-1">7D Rate</div>
+                                    <div className={`text-lg font-mono font-semibold ${sum7d >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>
+                                      {(sum7d * 100).toFixed(4)}%
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>
