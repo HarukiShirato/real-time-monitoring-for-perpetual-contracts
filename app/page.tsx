@@ -103,17 +103,38 @@ export default function Home() {
     }
   }, [activeTab, earnFetched, earnLoading, fetchEarnData]);
 
-  // 自动刷新（每 5 分钟）
+  // 永续合约：每小时第 1 分钟自动刷新（资金费率整点结算）
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (activeTab === 'perps') {
+    if (activeTab !== 'perps') return;
+
+    const scheduleNextHourRefresh = () => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setHours(now.getHours() + 1, 1, 0, 0); // 下一个整点 + 1 分钟
+      const delay = next.getTime() - now.getTime();
+      return setTimeout(() => {
         fetchPerpData();
-      } else {
-        fetchEarnData();
-      }
-    }, 300000);
+        // 之后每小时刷新
+        const interval = setInterval(fetchPerpData, 60 * 60 * 1000);
+        timerRef.current = interval;
+      }, delay);
+    };
+
+    const timerRef = { current: null as NodeJS.Timeout | null };
+    const initialTimer = scheduleNextHourRefresh();
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [activeTab, fetchPerpData]);
+
+  // 活期理财：每 5 分钟自动刷新
+  useEffect(() => {
+    if (activeTab !== 'earn') return;
+    const interval = setInterval(fetchEarnData, 300000);
     return () => clearInterval(interval);
-  }, [activeTab, fetchPerpData, fetchEarnData]);
+  }, [activeTab, fetchEarnData]);
 
   // ========== 永续过滤 ==========
   const filteredData = useMemo(() => {
