@@ -29,7 +29,12 @@ export async function getBinanceEarnProducts(): Promise<BinanceEarnProduct[]> {
           status: 'SUBSCRIBABLE',
         },
         {
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Origin': 'https://www.binance.com',
+            'Referer': 'https://www.binance.com/en/simple-earn',
+          },
           timeout: 15000,
         }
       );
@@ -85,7 +90,14 @@ async function getBinanceEarnProductsFallback(): Promise<BinanceEarnProduct[]> {
 
   const response = await axios.get(
     'https://www.binance.com/bapi/earn/v1/friendly/lending/daily/token/listAll',
-    { timeout: 15000 }
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Origin': 'https://www.binance.com',
+        'Referer': 'https://www.binance.com/en/simple-earn',
+      },
+      timeout: 15000,
+    }
   );
 
   const list = response.data?.data;
