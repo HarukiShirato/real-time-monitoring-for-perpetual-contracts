@@ -1,4 +1,5 @@
 import axios from 'axios';
+import crypto from 'crypto';
 
 export interface BinanceEarnProduct {
   asset: string;
@@ -8,114 +9,146 @@ export interface BinanceEarnProduct {
   canPurchase: boolean;
 }
 
+const BINANCE_API_KEY = process.env.BINANCE_API_KEY || '';
+const BINANCE_API_SECRET = process.env.BINANCE_API_SECRET || '';
+
+function signQuery(queryString: string): string {
+  return crypto
+    .createHmac('sha256', BINANCE_API_SECRET)
+    .update(queryString)
+    .digest('hex');
+}
+
 /**
  * 获取 Binance Simple Earn 活期产品列表
- * 使用 Binance 网站公开 API（无需签名）
+ * 优先使用官方签名 API，无 Key 时回退到 bapi
  */
 export async function getBinanceEarnProducts(): Promise<BinanceEarnProduct[]> {
+  if (BINANCE_API_KEY && BINANCE_API_SECRET) {
+    try {
+      return await getBinanceEarnFromSapi();
+    } catch (err: any) {
+      console.error('Binance SAPI 失败:', err?.message);
+    }
+  }
+
+  // 回退到 bapi（网站接口，可能被 WAF 拦截）
+  try {
+    return await getBinanceEarnFromBapi();
+  } catch (err: any) {
+    console.error('Binance bapi 失败:', err?.message);
+  }
+
+  return [];
+}
+
+/**
+ * 官方签名 API: GET /sapi/v1/simple-earn/flexible/list
+ * 需要 BINANCE_API_KEY + BINANCE_API_SECRET
+ */
+async function getBinanceEarnFromSapi(): Promise<BinanceEarnProduct[]> {
   const results: BinanceEarnProduct[] = [];
   let current = 1;
-  const pageSize = 200;
+  const size = 100; // SAPI 最大 100
 
-  try {
-    while (true) {
-      const response = await axios.post(
-        'https://www.binance.com/bapi/earn/v2/friendly/finance/product/list',
-        {
-          asset: '',
-          current,
-          size: pageSize,
-          type: 'ACTIVITY',
-          status: 'SUBSCRIBABLE',
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Origin': 'https://www.binance.com',
-            'Referer': 'https://www.binance.com/en/simple-earn',
-          },
-          timeout: 15000,
-        }
-      );
+  while (true) {
+    const timestamp = Date.now();
+    const queryString = `current=${current}&size=${size}&timestamp=${timestamp}`;
+    const signature = signQuery(queryString);
 
-      const rows = response.data?.data?.list;
-      if (!Array.isArray(rows) || rows.length === 0) break;
-
-      for (const item of rows) {
-        // latestAnnualPercentageRate / avgAnnualPercentageRate
-        const apr = parseFloat(
-          item.latestAnnualPercentageRate ||
-          item.avgAnnualPercentageRate ||
-          item.annualPercentageRate ||
-          '0'
-        );
-        if (apr <= 0) continue;
-
-        results.push({
-          asset: item.asset || item.productName || '',
-          apr,
-          minPurchaseAmount: parseFloat(item.minPurchaseAmount || '0'),
-          maxPurchaseAmount: item.maxPurchaseAmountPerUser
-            ? parseFloat(item.maxPurchaseAmountPerUser)
-            : null,
-          canPurchase: item.canPurchase !== false,
-        });
+    const response = await axios.get(
+      `https://api.binance.com/sapi/v1/simple-earn/flexible/list?${queryString}&signature=${signature}`,
+      {
+        headers: { 'X-MBX-APIKEY': BINANCE_API_KEY },
+        timeout: 15000,
       }
+    );
 
-      const total = response.data?.data?.total || 0;
-      if (current * pageSize >= total) break;
-      current++;
+    const rows = response.data?.rows;
+    if (!Array.isArray(rows) || rows.length === 0) break;
 
-      await new Promise(resolve => setTimeout(resolve, 200));
+    for (const item of rows) {
+      const apr = parseFloat(item.latestAnnualPercentageRate || '0');
+      if (apr <= 0) continue;
+
+      results.push({
+        asset: item.asset || '',
+        apr,
+        minPurchaseAmount: parseFloat(item.minPurchaseAmount || '0'),
+        maxPurchaseAmount: item.maxPurchaseAmountPerUser
+          ? parseFloat(item.maxPurchaseAmountPerUser)
+          : null,
+        canPurchase: item.canPurchase !== false,
+      });
     }
-  } catch (error: any) {
-    // 如果 bapi 失败，尝试备用公开 API
-    console.error('Binance bapi 失败，尝试备用方案:', error?.message);
-    try {
-      return await getBinanceEarnProductsFallback();
-    } catch (fallbackErr) {
-      console.error('Binance 备用方案也失败:', fallbackErr);
-    }
+
+    const total = response.data?.total || 0;
+    if (current * size >= total) break;
+    current++;
+
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
 
   return results;
 }
 
 /**
- * 备用方案：使用 Binance 另一个公开接口
+ * 回退方案：Binance 网站公开 bapi（可能被 AWS IP 拦截）
  */
-async function getBinanceEarnProductsFallback(): Promise<BinanceEarnProduct[]> {
+async function getBinanceEarnFromBapi(): Promise<BinanceEarnProduct[]> {
   const results: BinanceEarnProduct[] = [];
+  let current = 1;
+  const pageSize = 200;
 
-  const response = await axios.get(
-    'https://www.binance.com/bapi/earn/v1/friendly/lending/daily/token/listAll',
-    {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Origin': 'https://www.binance.com',
-        'Referer': 'https://www.binance.com/en/simple-earn',
+  while (true) {
+    const response = await axios.post(
+      'https://www.binance.com/bapi/earn/v2/friendly/finance/product/list',
+      {
+        asset: '',
+        current,
+        size: pageSize,
+        type: 'ACTIVITY',
+        status: 'SUBSCRIBABLE',
       },
-      timeout: 15000,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Origin': 'https://www.binance.com',
+          'Referer': 'https://www.binance.com/en/simple-earn',
+        },
+        timeout: 15000,
+      }
+    );
+
+    const rows = response.data?.data?.list;
+    if (!Array.isArray(rows) || rows.length === 0) break;
+
+    for (const item of rows) {
+      const apr = parseFloat(
+        item.latestAnnualPercentageRate ||
+        item.avgAnnualPercentageRate ||
+        item.annualPercentageRate ||
+        '0'
+      );
+      if (apr <= 0) continue;
+
+      results.push({
+        asset: item.asset || item.productName || '',
+        apr,
+        minPurchaseAmount: parseFloat(item.minPurchaseAmount || '0'),
+        maxPurchaseAmount: item.maxPurchaseAmountPerUser
+          ? parseFloat(item.maxPurchaseAmountPerUser)
+          : null,
+        canPurchase: item.canPurchase !== false,
+      });
     }
-  );
 
-  const list = response.data?.data;
-  if (!Array.isArray(list)) return results;
+    const total = response.data?.data?.total || 0;
+    if (current * pageSize >= total) break;
+    current++;
 
-  for (const item of list) {
-    const apr = parseFloat(item.dailyInterestRate || '0') * 365;
-    if (apr <= 0) continue;
-
-    results.push({
-      asset: item.asset || '',
-      apr,
-      minPurchaseAmount: parseFloat(item.minPurchaseAmount || '0'),
-      maxPurchaseAmount: item.maxPurchaseAmount
-        ? parseFloat(item.maxPurchaseAmount)
-        : null,
-      canPurchase: true,
-    });
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
 
   return results;
