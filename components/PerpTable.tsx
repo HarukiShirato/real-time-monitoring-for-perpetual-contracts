@@ -425,10 +425,10 @@ export default function PerpTable({ data }: PerpTableProps) {
                                     <ReferenceLine y={0} stroke="#2B3139" strokeDasharray="3 3" />
                                     <Bar dataKey="rate" maxBarSize={6}>
                                       {historyData.map((entry, index) => (
-                                        <Cell 
-                                          key={`cell-${index}`} 
-                                          fill={entry.rate >= 0 ? '#0ECB81' : '#F6465D'} 
-                                          fillOpacity={0.8}
+                                        <Cell
+                                          key={`cell-${index}`}
+                                          fill="#FFFFFF"
+                                          fillOpacity={0.7}
                                         />
                                       ))}
                                     </Bar>
@@ -441,56 +441,57 @@ export default function PerpTable({ data }: PerpTableProps) {
                               )}
                             </div>
 
-                            {constituents.length > 0 && (
-                              <div className="w-full lg:w-72 bg-brand-dark/40 border border-brand-border/60 rounded-xl p-4">
-                                <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-3">
-                                  Index Constituents
-                                </div>
-                                <div className="space-y-3 max-h-[180px] overflow-auto pr-1">
-                                  {constituents.map((entry, idx) => (
-                                    <div key={`${entry.exchange}-${entry.symbol}-${idx}`} className="flex justify-between items-start gap-3">
-                                      <div>
-                                        <div className="text-brand-text-primary text-sm font-semibold">{entry.exchange}</div>
-                                        <div className="text-[10px] text-brand-text-secondary uppercase">{entry.symbol}</div>
+                            {/* INDEX CONSTITUENTS + 24H/7D Rate 合并面板 */}
+                            <div className="w-full lg:w-80 bg-brand-dark/40 border border-brand-border/60 rounded-xl p-4">
+                              {constituents.length > 0 && (
+                                <>
+                                  <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-3">
+                                    Index Constituents
+                                  </div>
+                                  <div className="space-y-3 max-h-[120px] overflow-auto pr-1">
+                                    {constituents.map((entry, idx) => (
+                                      <div key={`${entry.exchange}-${entry.symbol}-${idx}`} className="flex justify-between items-start gap-3">
+                                        <div>
+                                          <div className="text-brand-text-primary text-sm font-semibold">{entry.exchange}</div>
+                                          <div className="text-[10px] text-brand-text-secondary uppercase">{entry.symbol}</div>
+                                        </div>
+                                        <div className="text-right text-xs font-mono">
+                                          <div className="text-brand-text-primary">${Number(entry.price).toFixed(2)}</div>
+                                          <div className="text-brand-text-secondary text-[10px]">{(Number(entry.weight) * 100).toFixed(2)}%</div>
+                                        </div>
                                       </div>
-                                      <div className="text-right text-xs font-mono">
-                                        <div className="text-brand-text-primary">${Number(entry.price).toFixed(2)}</div>
-                                        <div className="text-brand-text-secondary text-[10px]">{(Number(entry.weight) * 100).toFixed(2)}%</div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                              {historyData.length > 0 && (() => {
+                                const now = Date.now();
+                                const ms24h = 24 * 60 * 60 * 1000;
+                                const ms7d = 7 * 24 * 60 * 60 * 1000;
+                                const sum24h = historyData
+                                  .filter(d => now - d.time < ms24h)
+                                  .reduce((s, d) => s + d.rate, 0);
+                                const sum7d = historyData
+                                  .filter(d => now - d.time < ms7d)
+                                  .reduce((s, d) => s + d.rate, 0);
+                                return (
+                                  <div className={`flex gap-6 ${constituents.length > 0 ? 'mt-4 pt-3 border-t border-brand-border/40' : ''}`}>
+                                    <div>
+                                      <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-1">24H Rate</div>
+                                      <div className={`text-base font-mono font-semibold ${sum24h >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>
+                                        {(sum24h * 100).toFixed(4)}%
                                       </div>
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* 24h / 7d 累计资金费率 */}
-                            {historyData.length > 0 && (() => {
-                              const now = Date.now();
-                              const ms24h = 24 * 60 * 60 * 1000;
-                              const ms7d = 7 * 24 * 60 * 60 * 1000;
-                              const sum24h = historyData
-                                .filter(d => now - d.time < ms24h)
-                                .reduce((s, d) => s + d.rate, 0);
-                              const sum7d = historyData
-                                .filter(d => now - d.time < ms7d)
-                                .reduce((s, d) => s + d.rate, 0);
-                              return (
-                                <div className="w-full lg:w-40 bg-brand-dark/40 border border-brand-border/60 rounded-xl p-4 flex flex-col justify-center gap-4">
-                                  <div>
-                                    <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-1">24H Rate</div>
-                                    <div className={`text-lg font-mono font-semibold ${sum24h >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>
-                                      {(sum24h * 100).toFixed(4)}%
+                                    <div>
+                                      <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-1">7D Rate</div>
+                                      <div className={`text-base font-mono font-semibold ${sum7d >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>
+                                        {(sum7d * 100).toFixed(4)}%
+                                      </div>
                                     </div>
                                   </div>
-                                  <div>
-                                    <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-1">7D Rate</div>
-                                    <div className={`text-lg font-mono font-semibold ${sum7d >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>
-                                      {(sum7d * 100).toFixed(4)}%
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })()}
+                                );
+                              })()}
+                            </div>
                           </div>
                         </td>
                       </tr>
