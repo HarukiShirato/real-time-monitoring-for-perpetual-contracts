@@ -54,24 +54,20 @@ export async function GET() {
       getOkxEarnProducts(),
     ]);
 
-    // 按 asset 聚合 earn rates
-    const assetMap = new Map<string, EarnRate[]>();
+    // 按 asset 聚合 earn rates（同交易所去重，取最高 APR）
+    const assetMap = new Map<string, Map<string, number>>();
 
-    for (const p of binanceProducts) {
-      const key = p.asset.toUpperCase();
-      if (!assetMap.has(key)) assetMap.set(key, []);
-      assetMap.get(key)!.push({ exchange: 'Binance', apr: p.apr });
-    }
-    for (const p of bybitProducts) {
-      const key = p.asset.toUpperCase();
-      if (!assetMap.has(key)) assetMap.set(key, []);
-      assetMap.get(key)!.push({ exchange: 'Bybit', apr: p.apr });
-    }
-    for (const p of okxProducts) {
-      const key = p.asset.toUpperCase();
-      if (!assetMap.has(key)) assetMap.set(key, []);
-      assetMap.get(key)!.push({ exchange: 'OKX', apr: p.apr });
-    }
+    const addEarn = (asset: string, exchange: string, apr: number) => {
+      const key = asset.toUpperCase();
+      if (!assetMap.has(key)) assetMap.set(key, new Map());
+      const exchMap = assetMap.get(key)!;
+      const existing = exchMap.get(exchange) ?? 0;
+      if (apr > existing) exchMap.set(exchange, apr);
+    };
+
+    for (const p of binanceProducts) addEarn(p.asset, 'Binance', p.apr);
+    for (const p of bybitProducts) addEarn(p.asset, 'Bybit', p.apr);
+    for (const p of okxProducts) addEarn(p.asset, 'OKX', p.apr);
 
     const allAssets = Array.from(assetMap.keys());
 
@@ -85,13 +81,16 @@ export async function GET() {
     // 构建 combined 行
     const rows: CombinedEarnRow[] = [];
 
-    for (const [asset, earnRates] of assetMap.entries()) {
-      // 最优 earn
-      const sortedEarn = [...earnRates].sort((a, b) => b.apr - a.apr);
-      const bestEarnApr = sortedEarn[0]?.apr || 0;
-      const bestEarnExchange = sortedEarn[0]?.exchange || '';
+    for (const [asset, exchMap] of assetMap.entries()) {
+      // 转换为 EarnRate[]，按 APR 降序
+      const earnRates: EarnRate[] = Array.from(exchMap.entries())
+        .map(([exchange, apr]) => ({ exchange, apr }))
+        .sort((a, b) => b.apr - a.apr);
 
-      // 资金费率
+      const bestEarnApr = earnRates[0]?.apr || 0;
+      const bestEarnExchange = earnRates[0]?.exchange || '';
+
+      // 资金费率（负值也保留，只过滤 0 即"无合约"的情况）
       const fs = fundingMap.get(asset);
       const funding: FundingRate[] = [];
       if (fs) {
@@ -103,17 +102,23 @@ export async function GET() {
         }
       }
 
-      // 最优 funding
+      // 最优 funding（负值也参与选择，选最高的；无数据时为 0）
       let bestFunding3d = 0, bestFunding7d = 0;
       let bestFundingExchange3d = '', bestFundingExchange7d = '';
-      for (const f of funding) {
-        if (f.apr3d > bestFunding3d) {
-          bestFunding3d = f.apr3d;
-          bestFundingExchange3d = f.exchange;
-        }
-        if (f.apr7d > bestFunding7d) {
-          bestFunding7d = f.apr7d;
-          bestFundingExchange7d = f.exchange;
+      if (funding.length > 0) {
+        bestFunding3d = funding[0].apr3d;
+        bestFundingExchange3d = funding[0].exchange;
+        bestFunding7d = funding[0].apr7d;
+        bestFundingExchange7d = funding[0].exchange;
+        for (let i = 1; i < funding.length; i++) {
+          if (funding[i].apr3d > bestFunding3d) {
+            bestFunding3d = funding[i].apr3d;
+            bestFundingExchange3d = funding[i].exchange;
+          }
+          if (funding[i].apr7d > bestFunding7d) {
+            bestFunding7d = funding[i].apr7d;
+            bestFundingExchange7d = funding[i].exchange;
+          }
         }
       }
 
@@ -122,7 +127,7 @@ export async function GET() {
 
       rows.push({
         asset,
-        earnRates: sortedEarn,
+        earnRates,
         bestEarnApr,
         bestEarnExchange,
         funding,
