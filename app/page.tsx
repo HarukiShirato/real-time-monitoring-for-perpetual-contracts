@@ -6,7 +6,7 @@ import SearchBox from '@/components/SearchBox';
 import FilterControls from '@/components/FilterControls';
 import PerpTable, { PerpData } from '@/components/PerpTable';
 import TabNav, { TabKey } from '@/components/TabNav';
-import EarnTable, { EarnProduct } from '@/components/EarnTable';
+import EarnTable, { CombinedEarnRow } from '@/components/EarnTable';
 import EarnFilterControls from '@/components/EarnFilterControls';
 
 const PERP_EXCHANGES = ['Binance', 'Bybit', 'Bitget', 'Gate', 'OKX'];
@@ -34,7 +34,7 @@ export default function Home() {
   const [selectedIntervals, setSelectedIntervals] = useState<Set<number>>(new Set());
 
   // ========== 活期理财数据 ==========
-  const [earnData, setEarnData] = useState<EarnProduct[]>([]);
+  const [earnData, setEarnData] = useState<CombinedEarnRow[]>([]);
   const [earnLoading, setEarnLoading] = useState(false);
   const [earnError, setEarnError] = useState<string | null>(null);
   const [earnLastUpdate, setEarnLastUpdate] = useState<Date | null>(null);
@@ -45,7 +45,7 @@ export default function Home() {
     new Set(['Binance', 'Bybit', 'OKX'])
   );
   const [earnSearchQuery, setEarnSearchQuery] = useState('');
-  const [earnMinApr, setEarnMinApr] = useState(0);
+  const [earnMinCombinedApr, setEarnMinCombinedApr] = useState(0);
 
   // ========== 数据获取 ==========
   const fetchPerpData = useCallback(async () => {
@@ -133,12 +133,16 @@ export default function Home() {
   // ========== 理财过滤 ==========
   const filteredEarnData = useMemo(() => {
     return earnData.filter(item => {
-      if (!earnSelectedExchanges.has(item.exchange)) return false;
+      // 交易所筛选：该 asset 至少有一个 earnRate 属于已选交易所
+      if (item.earnRates.length > 0) {
+        const hasSelectedExchange = item.earnRates.some(r => earnSelectedExchanges.has(r.exchange));
+        if (!hasSelectedExchange) return false;
+      }
       if (earnSearchQuery && !item.asset.toLowerCase().includes(earnSearchQuery.toLowerCase())) return false;
-      if (earnMinApr > 0 && item.apr * 100 < earnMinApr) return false;
+      if (earnMinCombinedApr > 0 && item.combined7d * 100 < earnMinCombinedApr) return false;
       return true;
     });
-  }, [earnData, earnSelectedExchanges, earnSearchQuery, earnMinApr]);
+  }, [earnData, earnSelectedExchanges, earnSearchQuery, earnMinCombinedApr]);
 
   // ========== 辅助 ==========
   const maxOi = useMemo(() => {
@@ -325,12 +329,12 @@ export default function Home() {
 
               <div className="glass-panel rounded-xl p-5 flex flex-wrap items-center gap-6">
                 <EarnFilterControls
-                  minApr={earnMinApr}
-                  onMinAprChange={setEarnMinApr}
+                  minCombinedApr={earnMinCombinedApr}
+                  onMinCombinedAprChange={setEarnMinCombinedApr}
                 />
                 <div className="flex-1" />
                 <div className="text-sm text-brand-text-secondary font-medium px-4 py-1.5 bg-brand-dark/50 rounded-md border border-brand-border/50">
-                  Showing <span className="text-brand-text-primary">{filteredEarnData.length}</span> / {earnData.length} products
+                  Showing <span className="text-brand-text-primary">{filteredEarnData.length}</span> / {earnData.length} assets
                 </div>
               </div>
             </div>

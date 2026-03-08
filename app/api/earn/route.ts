@@ -3,21 +3,39 @@ import { getBinanceEarnProducts } from '@/lib/exchanges/binanceEarn';
 import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
+import { batchGetFundingStats } from '@/lib/fundingAggregator';
 
-export interface EarnProduct {
-  asset: string;
-  exchange: 'Binance' | 'Bybit' | 'OKX';
+export interface EarnRate {
+  exchange: string;
   apr: number;
-  minAmount: number;
-  maxAmount: number | null;
+}
+
+export interface FundingRate {
+  exchange: string;
+  apr3d: number;
+  apr7d: number;
+}
+
+export interface CombinedEarnRow {
+  asset: string;
+  earnRates: EarnRate[];
+  bestEarnApr: number;
+  bestEarnExchange: string;
+  funding: FundingRate[];
+  bestFunding3d: number;
+  bestFunding7d: number;
+  bestFundingExchange3d: string;
+  bestFundingExchange7d: string;
+  combined3d: number;
+  combined7d: number;
   coinImage?: string;
   coinName?: string;
   marketCap: number | null;
 }
 
 // 进程级缓存
-const CACHE_TTL_MS = 60 * 1000; // 60s
-let cachedEarn: { data: EarnProduct[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 120 * 1000; // 120s（含资金费率历史，变化慢）
+let cachedEarn: { data: CombinedEarnRow[]; timestamp: number } | null = null;
 
 export async function GET() {
   try {
@@ -25,82 +43,106 @@ export async function GET() {
     if (cachedEarn && now - cachedEarn.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(
         { success: true, data: cachedEarn.data, timestamp: cachedEarn.timestamp, cached: true },
-        { headers: { 'Cache-Control': 'public, max-age=30, stale-while-revalidate=120' } }
+        { headers: { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=120' } }
       );
     }
 
-    // 并行获取三个交易所数据
+    // 并行获取三个交易所 earn 产品
     const [binanceProducts, bybitProducts, okxProducts] = await Promise.all([
       getBinanceEarnProducts(),
       getBybitEarnProducts(),
       getOkxEarnProducts(),
     ]);
 
-    const allProducts: EarnProduct[] = [];
-    const allAssets: string[] = [];
+    // 按 asset 聚合 earn rates
+    const assetMap = new Map<string, EarnRate[]>();
 
-    // Binance
     for (const p of binanceProducts) {
-      const sym = p.asset + 'USDT';
-      allAssets.push(sym);
-      allProducts.push({
-        asset: p.asset,
-        exchange: 'Binance',
-        apr: p.apr,
-        minAmount: p.minPurchaseAmount,
-        maxAmount: p.maxPurchaseAmount,
-        marketCap: null,
-      });
+      const key = p.asset.toUpperCase();
+      if (!assetMap.has(key)) assetMap.set(key, []);
+      assetMap.get(key)!.push({ exchange: 'Binance', apr: p.apr });
     }
-
-    // Bybit
     for (const p of bybitProducts) {
-      const sym = p.asset + 'USDT';
-      allAssets.push(sym);
-      allProducts.push({
-        asset: p.asset,
-        exchange: 'Bybit',
-        apr: p.apr,
-        minAmount: p.minStakeAmount,
-        maxAmount: p.maxStakeAmount,
-        marketCap: null,
-      });
+      const key = p.asset.toUpperCase();
+      if (!assetMap.has(key)) assetMap.set(key, []);
+      assetMap.get(key)!.push({ exchange: 'Bybit', apr: p.apr });
     }
-
-    // OKX
     for (const p of okxProducts) {
-      const sym = p.asset + 'USDT';
-      allAssets.push(sym);
-      allProducts.push({
-        asset: p.asset,
-        exchange: 'OKX',
-        apr: p.apr,
-        minAmount: p.minAmount,
-        maxAmount: p.maxAmount,
-        marketCap: null,
+      const key = p.asset.toUpperCase();
+      if (!assetMap.has(key)) assetMap.set(key, []);
+      assetMap.get(key)!.push({ exchange: 'OKX', apr: p.apr });
+    }
+
+    const allAssets = Array.from(assetMap.keys());
+
+    // 获取资金费率历史（只对有 earn 产品的 asset 查询）
+    const fundingMap = await batchGetFundingStats(allAssets);
+
+    // 获取市值数据
+    const symbols = allAssets.map(a => a + 'USDT');
+    const marketDataMap = await getBatchMarketDataForSymbols(symbols);
+
+    // 构建 combined 行
+    const rows: CombinedEarnRow[] = [];
+
+    for (const [asset, earnRates] of assetMap.entries()) {
+      // 最优 earn
+      const sortedEarn = [...earnRates].sort((a, b) => b.apr - a.apr);
+      const bestEarnApr = sortedEarn[0]?.apr || 0;
+      const bestEarnExchange = sortedEarn[0]?.exchange || '';
+
+      // 资金费率
+      const fs = fundingMap.get(asset);
+      const funding: FundingRate[] = [];
+      if (fs) {
+        if (fs.binance3d !== 0 || fs.binance7d !== 0) {
+          funding.push({ exchange: 'Binance', apr3d: fs.binance3d, apr7d: fs.binance7d });
+        }
+        if (fs.bybit3d !== 0 || fs.bybit7d !== 0) {
+          funding.push({ exchange: 'Bybit', apr3d: fs.bybit3d, apr7d: fs.bybit7d });
+        }
+      }
+
+      // 最优 funding
+      let bestFunding3d = 0, bestFunding7d = 0;
+      let bestFundingExchange3d = '', bestFundingExchange7d = '';
+      for (const f of funding) {
+        if (f.apr3d > bestFunding3d) {
+          bestFunding3d = f.apr3d;
+          bestFundingExchange3d = f.exchange;
+        }
+        if (f.apr7d > bestFunding7d) {
+          bestFunding7d = f.apr7d;
+          bestFundingExchange7d = f.exchange;
+        }
+      }
+
+      // 市值
+      const md = marketDataMap.get(asset + 'USDT');
+
+      rows.push({
+        asset,
+        earnRates: sortedEarn,
+        bestEarnApr,
+        bestEarnExchange,
+        funding,
+        bestFunding3d,
+        bestFunding7d,
+        bestFundingExchange3d,
+        bestFundingExchange7d,
+        combined3d: bestEarnApr + bestFunding3d,
+        combined7d: bestEarnApr + bestFunding7d,
+        coinImage: md?.image,
+        coinName: md?.name,
+        marketCap: md?.marketCap ?? null,
       });
     }
 
-    // 批量获取市值数据
-    const uniqueSymbols = [...new Set(allAssets)];
-    const marketDataMap = await getBatchMarketDataForSymbols(uniqueSymbols);
-
-    // 填充市值和图标
-    for (const product of allProducts) {
-      const sym = product.asset + 'USDT';
-      const md = marketDataMap.get(sym);
-      if (md) {
-        product.marketCap = md.marketCap;
-        product.coinImage = md.image;
-        product.coinName = md.name;
-      }
-    }
-
-    cachedEarn = { data: allProducts, timestamp: now };
+    cachedEarn = { data: rows, timestamp: now };
 
     return NextResponse.json({
       success: true,
-      data: allProducts,
+      data: rows,
       timestamp: now,
     });
   } catch (error) {

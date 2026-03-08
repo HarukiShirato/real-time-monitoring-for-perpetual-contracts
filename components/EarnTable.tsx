@@ -2,39 +2,72 @@
 
 import { useMemo, useState, useEffect } from 'react';
 
-export interface EarnProduct {
-  asset: string;
-  exchange: 'Binance' | 'Bybit' | 'OKX';
+export interface EarnRate {
+  exchange: string;
   apr: number;
-  minAmount: number;
-  maxAmount: number | null;
+}
+
+export interface FundingRate {
+  exchange: string;
+  apr3d: number;
+  apr7d: number;
+}
+
+export interface CombinedEarnRow {
+  asset: string;
+  earnRates: EarnRate[];
+  bestEarnApr: number;
+  bestEarnExchange: string;
+  funding: FundingRate[];
+  bestFunding3d: number;
+  bestFunding7d: number;
+  bestFundingExchange3d: string;
+  bestFundingExchange7d: string;
+  combined3d: number;
+  combined7d: number;
   coinImage?: string;
   coinName?: string;
   marketCap: number | null;
 }
 
-type SortKey = 'asset' | 'exchange' | 'apr' | 'minAmount' | 'marketCap' | 'none';
+type SortKey = 'asset' | 'bestEarnApr' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'marketCap' | 'none';
 type SortOrder = 'asc' | 'desc';
 
 interface EarnTableProps {
-  data: EarnProduct[];
+  data: CombinedEarnRow[];
 }
 
+const exchangeColors: Record<string, string> = {
+  Binance: 'bg-[#FCD535]/10 text-[#FCD535] border-[#FCD535]/20',
+  Bybit: 'bg-brand-info/10 text-brand-info border-brand-info/20',
+  OKX: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+};
+
+const ExchangeBadge = ({ name }: { name: string }) => (
+  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border ${exchangeColors[name] || 'bg-brand-surface text-brand-text-muted border-brand-border'}`}>
+    {name}
+  </span>
+);
+
+const formatPct = (val: number) => {
+  const pct = val * 100;
+  if (pct === 0) return '\u2014';
+  const sign = pct > 0 ? '' : '';
+  return `${sign}${pct.toFixed(2)}%`;
+};
+
+const pctColor = (val: number) => {
+  if (val > 0) return 'text-brand-success';
+  if (val < 0) return 'text-brand-danger';
+  return 'text-brand-text-muted';
+};
+
 export default function EarnTable({ data }: EarnTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('apr');
+  const [sortKey, setSortKey] = useState<SortKey>('combined7d');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
-
-  // 计算同币种最高 APR
-  const bestAprByAsset = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of data) {
-      const current = map.get(item.asset) || 0;
-      if (item.apr > current) map.set(item.asset, item.apr);
-    }
-    return map;
-  }, [data]);
 
   const handleSort = (key: SortKey) => {
     if (key === 'none') return;
@@ -50,8 +83,8 @@ export default function EarnTable({ data }: EarnTableProps) {
     const next = [...data];
     next.sort((a, b) => {
       if (sortKey === 'none') return 0;
-      let aVal: any = a[sortKey as keyof EarnProduct];
-      let bVal: any = b[sortKey as keyof EarnProduct];
+      let aVal: any = a[sortKey as keyof CombinedEarnRow];
+      let bVal: any = b[sortKey as keyof CombinedEarnRow];
       if (aVal === null || aVal === undefined) aVal = -Infinity;
       if (bVal === null || bVal === undefined) bVal = -Infinity;
       if (typeof aVal === 'string') {
@@ -70,9 +103,7 @@ export default function EarnTable({ data }: EarnTableProps) {
     return sortedData.slice(start, start + pageSize);
   }, [sortedData, pageSize, currentPage]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize, data, sortKey, sortOrder]);
+  useEffect(() => { setPage(1); }, [pageSize, data, sortKey, sortOrder]);
 
   const formatNumber = (num: number | null, decimals: number = 2) => {
     if (num === null || num === undefined) return '\u2014';
@@ -98,10 +129,7 @@ export default function EarnTable({ data }: EarnTableProps) {
 
   const Th = ({ id, children, align = 'left', className = '' }: { id: SortKey; children: React.ReactNode; align?: 'left' | 'center' | 'right'; className?: string }) => (
     <th
-      className={`
-        px-4 py-3 text-${align} text-xs font-semibold text-brand-text-secondary uppercase tracking-wider cursor-pointer
-        transition-all duration-200 hover:text-brand-text-primary hover:bg-brand-surfaceHighlight/50 group select-none border-b border-brand-border ${className}
-      `}
+      className={`px-4 py-3 text-${align} text-xs font-semibold text-brand-text-secondary uppercase tracking-wider cursor-pointer transition-all duration-200 hover:text-brand-text-primary hover:bg-brand-surfaceHighlight/50 group select-none border-b border-brand-border ${className}`}
       onClick={() => handleSort(id)}
     >
       <div className={`flex items-center ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
@@ -111,12 +139,6 @@ export default function EarnTable({ data }: EarnTableProps) {
     </th>
   );
 
-  const exchangeColors: Record<string, string> = {
-    Binance: 'bg-[#FCD535]/10 text-[#FCD535] border-[#FCD535]/20',
-    Bybit: 'bg-brand-info/10 text-brand-info border-brand-info/20',
-    OKX: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  };
-
   return (
     <div className="w-full overflow-hidden bg-brand-surface rounded-xl border border-brand-border shadow-xl">
       <div className="overflow-x-auto">
@@ -125,16 +147,18 @@ export default function EarnTable({ data }: EarnTableProps) {
             <tr className="bg-brand-surface">
               <Th id="asset" className="pl-6">COIN</Th>
               <Th id="asset">ASSET</Th>
-              <Th id="exchange">EXCHANGE</Th>
-              <Th id="apr" align="right">APR</Th>
-              <Th id="minAmount" align="right">MIN AMOUNT</Th>
+              <Th id="bestEarnApr" align="right">EARN APR</Th>
+              <Th id="bestFunding3d" align="right">FUND 3D</Th>
+              <Th id="bestFunding7d" align="right">FUND 7D</Th>
+              <Th id="combined3d" align="right">COMBINED 3D</Th>
+              <Th id="combined7d" align="right">COMBINED 7D</Th>
               <Th id="marketCap" align="right" className="pr-6">M-CAP</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-brand-border bg-brand-dark/50">
             {sortedData.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-24 text-center">
+                <td colSpan={8} className="px-6 py-24 text-center">
                   <div className="flex flex-col items-center justify-center text-brand-text-muted">
                     <svg className="w-12 h-12 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -145,49 +169,132 @@ export default function EarnTable({ data }: EarnTableProps) {
               </tr>
             ) : (
               pagedData.map((item) => {
-                const isBest = bestAprByAsset.get(item.asset) === item.apr &&
-                  data.filter(d => d.asset === item.asset).length > 1;
+                const isExpanded = expandedAsset === item.asset;
 
                 return (
-                  <tr
-                    key={`${item.asset}-${item.exchange}`}
-                    className={`transition-colors duration-150 group hover:bg-brand-surfaceHighlight/30 ${isBest ? 'bg-brand-accent/[0.03]' : ''}`}
-                  >
-                    <td className="px-4 py-3 whitespace-nowrap pl-6">
-                      <div className="flex items-center" title={item.coinName || item.asset}>
-                        {item.coinImage ? (
-                          <img
-                            src={item.coinImage}
-                            alt={item.coinName || item.asset}
-                            className="w-6 h-6 rounded-full border border-brand-border/60"
-                          />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-brand-surface border border-brand-border flex items-center justify-center text-[10px] font-bold text-brand-text-secondary group-hover:border-brand-accent/30 group-hover:text-brand-accent transition-colors">
-                            {item.asset.substring(0, 1)}
+                  <>
+                    <tr
+                      key={item.asset}
+                      className={`transition-colors duration-150 group hover:bg-brand-surfaceHighlight/30 ${isExpanded ? 'bg-brand-surfaceHighlight/20' : ''}`}
+                    >
+                      {/* COIN */}
+                      <td className="px-4 py-3 whitespace-nowrap pl-6">
+                        <div className="flex items-center" title={item.coinName || item.asset}>
+                          {item.coinImage ? (
+                            <img src={item.coinImage} alt={item.coinName || item.asset} className="w-6 h-6 rounded-full border border-brand-border/60" />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-brand-surface border border-brand-border flex items-center justify-center text-[10px] font-bold text-brand-text-secondary">
+                              {item.asset.substring(0, 1)}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* ASSET */}
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary font-mono">
+                        {item.asset}
+                      </td>
+
+                      {/* EARN APR - 点击展开明细 */}
+                      <td
+                        className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight cursor-pointer"
+                        onClick={() => setExpandedAsset(isExpanded ? null : item.asset)}
+                      >
+                        <div className="flex items-center justify-end gap-1.5 hover:bg-brand-surfaceHighlight rounded px-1 py-0.5 transition-colors">
+                          <span className="text-brand-success font-semibold">{formatPct(item.bestEarnApr)}</span>
+                          <ExchangeBadge name={item.bestEarnExchange} />
+                          <span className="text-[10px] opacity-50 text-brand-text-muted">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                        </div>
+                      </td>
+
+                      {/* FUND 3D */}
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
+                        {item.bestFunding3d !== 0 ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span className={pctColor(item.bestFunding3d)}>{formatPct(item.bestFunding3d)}</span>
+                            {item.bestFundingExchange3d && <ExchangeBadge name={item.bestFundingExchange3d} />}
                           </div>
+                        ) : (
+                          <span className="text-brand-text-muted">{'\u2014'}</span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary font-mono">
-                      {item.asset}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${exchangeColors[item.exchange] || ''}`}>
-                        {item.exchange}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
-                      <span className={`${isBest ? 'text-brand-accent font-semibold' : 'text-brand-success'}`}>
-                        {(item.apr * 100).toFixed(2)}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary text-right font-mono tracking-tight">
-                      {item.minAmount > 0 ? formatNumber(item.minAmount, 2) : '\u2014'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary text-right font-mono tracking-tight pr-6">
-                      {formatNumber(item.marketCap, 1)}
-                    </td>
-                  </tr>
+                      </td>
+
+                      {/* FUND 7D */}
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
+                        {item.bestFunding7d !== 0 ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span className={pctColor(item.bestFunding7d)}>{formatPct(item.bestFunding7d)}</span>
+                            {item.bestFundingExchange7d && <ExchangeBadge name={item.bestFundingExchange7d} />}
+                          </div>
+                        ) : (
+                          <span className="text-brand-text-muted">{'\u2014'}</span>
+                        )}
+                      </td>
+
+                      {/* COMBINED 3D */}
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
+                        <span className={`font-semibold ${pctColor(item.combined3d)}`}>
+                          {item.combined3d !== 0 ? formatPct(item.combined3d) : formatPct(item.bestEarnApr)}
+                        </span>
+                      </td>
+
+                      {/* COMBINED 7D */}
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
+                        <span className={`font-semibold ${pctColor(item.combined7d)}`}>
+                          {item.combined7d !== 0 ? formatPct(item.combined7d) : formatPct(item.bestEarnApr)}
+                        </span>
+                      </td>
+
+                      {/* M-CAP */}
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary text-right font-mono tracking-tight pr-6">
+                        {formatNumber(item.marketCap, 1)}
+                      </td>
+                    </tr>
+
+                    {/* 展开：各交易所 Earn 明细 + Funding 明细 */}
+                    {isExpanded && (
+                      <tr key={`${item.asset}-detail`} className="bg-brand-surfaceHighlight/10 border-b border-brand-border">
+                        <td colSpan={8} className="px-6 py-4">
+                          <div className="flex flex-col lg:flex-row gap-6">
+                            {/* Earn 明细 */}
+                            <div className="flex-1">
+                              <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-2">Earn Rates</div>
+                              <div className="space-y-2">
+                                {item.earnRates.map((er) => (
+                                  <div key={er.exchange} className="flex items-center justify-between gap-3 text-sm">
+                                    <ExchangeBadge name={er.exchange} />
+                                    <span className={`font-mono ${er.apr === item.bestEarnApr ? 'text-brand-accent font-semibold' : 'text-brand-text-primary'}`}>
+                                      {formatPct(er.apr)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Funding 明细 */}
+                            {item.funding.length > 0 && (
+                              <div className="flex-1">
+                                <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-2">Funding Rates (Annualized)</div>
+                                <div className="space-y-2">
+                                  {item.funding.map((fr) => (
+                                    <div key={fr.exchange} className="flex items-center justify-between gap-3 text-sm">
+                                      <ExchangeBadge name={fr.exchange} />
+                                      <div className="flex gap-4 font-mono">
+                                        <span className="text-brand-text-secondary text-xs">3D:</span>
+                                        <span className={pctColor(fr.apr3d)}>{formatPct(fr.apr3d)}</span>
+                                        <span className="text-brand-text-secondary text-xs">7D:</span>
+                                        <span className={pctColor(fr.apr7d)}>{formatPct(fr.apr7d)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 );
               })
             )}
@@ -195,6 +302,7 @@ export default function EarnTable({ data }: EarnTableProps) {
         </table>
       </div>
 
+      {/* Pagination */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-brand-border text-sm text-brand-text-secondary">
         <div className="flex items-center gap-2">
           <span>Rows per page</span>
@@ -222,9 +330,7 @@ export default function EarnTable({ data }: EarnTableProps) {
             >
               Prev
             </button>
-            <span className="text-xs text-brand-text-primary">
-              {currentPage}/{pageCount}
-            </span>
+            <span className="text-xs text-brand-text-primary">{currentPage}/{pageCount}</span>
             <button
               onClick={() => setPage(prev => Math.min(pageCount, prev + 1))}
               disabled={currentPage === pageCount || sortedData.length === 0}
