@@ -129,11 +129,29 @@ export default function Home() {
     };
   }, [activeTab, fetchPerpData]);
 
-  // 活期理财：每 5 分钟自动刷新
+  // 活期理财：每小时第 1 分钟自动刷新
   useEffect(() => {
     if (activeTab !== 'earn') return;
-    const interval = setInterval(fetchEarnData, 300000);
-    return () => clearInterval(interval);
+
+    const scheduleNextHourRefresh = () => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setHours(now.getHours() + 1, 1, 0, 0);
+      const delay = next.getTime() - now.getTime();
+      return setTimeout(() => {
+        fetchEarnData();
+        const interval = setInterval(fetchEarnData, 60 * 60 * 1000);
+        timerRef.current = interval;
+      }, delay);
+    };
+
+    const timerRef = { current: null as NodeJS.Timeout | null };
+    const initialTimer = scheduleNextHourRefresh();
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [activeTab, fetchEarnData]);
 
   // ========== 永续过滤 ==========
