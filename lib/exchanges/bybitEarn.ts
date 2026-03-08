@@ -49,8 +49,8 @@ async function getBybitEarnFromWebApi(): Promise<BybitEarnProduct[]> {
       item.estimateApr || item.apr || item.annualYield || item.flexibleAnnualYield || '0'
     );
     if (apr <= 0) continue;
-    // Bybit Web API 返回百分比数值（如 25.3 表示 25.3%），转为小数
-    if (apr > 1) apr = apr / 100;
+    // Bybit Web API 返回百分比数值（如 0.8 表示 0.8%），统一转为小数
+    apr = apr / 100;
 
     results.push({
       asset: (item.coin || item.tokenName || item.currency || '').toUpperCase(),
@@ -86,8 +86,8 @@ async function getBybitEarnFromV5Api(): Promise<BybitEarnProduct[]> {
     for (const item of list) {
       let apr = parseFloat(item.estimateApr || item.flexibleAnnualYield || '0');
       if (apr <= 0) continue;
-      // Bybit 返回百分比数值，转为小数
-      if (apr > 1) apr = apr / 100;
+      // Bybit v5 API 返回百分比数值（如 0.8 表示 0.8%），统一转为小数
+      apr = apr / 100;
 
       results.push({
         asset: (item.coin || item.tokenName || '').toUpperCase(),

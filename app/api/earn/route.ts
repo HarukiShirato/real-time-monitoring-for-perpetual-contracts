@@ -4,7 +4,6 @@ import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 import { batchGetFundingStats } from '@/lib/fundingAggregator';
-import { batchGetEarnRateHistory } from '@/lib/earnRateHistory';
 
 export interface EarnRate {
   exchange: string;
@@ -77,11 +76,10 @@ export async function GET() {
 
     const allAssets = Array.from(assetMap.keys());
 
-    // 并行获取：资金费率历史 + 活期利率历史 + 市值数据
+    // 并行获取：资金费率历史 + 市值数据
     const symbols = allAssets.map(a => a + 'USDT');
-    const [fundingMap, earnHistoryMap, marketDataMap] = await Promise.all([
+    const [fundingMap, marketDataMap] = await Promise.all([
       batchGetFundingStats(allAssets),
-      batchGetEarnRateHistory(allAssets),
       getBatchMarketDataForSymbols(symbols),
     ]);
 
@@ -129,27 +127,9 @@ export async function GET() {
         }
       }
 
-      // 历史活期利率（OKX 公开接口）
-      // Binance/Bybit 无公开历史接口，用当前 APR 做 fallback
-      const earnHistory = earnHistoryMap.get(asset);
-      const okx3d = earnHistory?.okx3d || 0;
-      const okx7d = earnHistory?.okx7d || 0;
-
-      // 各交易所历史 earn rate：OKX 用历史，Binance/Bybit 用当前 APR
-      const earnRates3d: number[] = [];
-      const earnRates7d: number[] = [];
-      for (const er of earnRates) {
-        if (er.exchange === 'OKX') {
-          earnRates3d.push(okx3d || er.apr);
-          earnRates7d.push(okx7d || er.apr);
-        } else {
-          // Binance/Bybit 无历史接口，用当前 APR
-          earnRates3d.push(er.apr);
-          earnRates7d.push(er.apr);
-        }
-      }
-      const bestEarn3d = earnRates3d.length > 0 ? Math.max(...earnRates3d) : 0;
-      const bestEarn7d = earnRates7d.length > 0 ? Math.max(...earnRates7d) : 0;
+      // 活期利率：统一用当前时点 APR（各交易所均无公开历史接口）
+      const bestEarn3d = bestEarnApr;
+      const bestEarn7d = bestEarnApr;
 
       // 市值
       const md = marketDataMap.get(asset + 'USDT');
