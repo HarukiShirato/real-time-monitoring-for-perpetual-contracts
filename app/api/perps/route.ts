@@ -3,6 +3,9 @@ import { getBinancePerps } from '@/lib/exchanges/binance';
 import { getBybitPerps } from '@/lib/exchanges/bybit';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // 简单的进程级缓存，降低对上游 API 的压力
 const CACHE_TTL_MS = 60 * 1000; // 60s
 let cachedPerps: { data: PerpData[]; timestamp: number } | null = null;
@@ -62,7 +65,7 @@ export async function GET() {
         },
         {
           headers: {
-            'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
+            'Cache-Control': 'no-store',
           },
         }
       );

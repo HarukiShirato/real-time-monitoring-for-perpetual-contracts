@@ -5,6 +5,10 @@ import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 import { batchGetFundingStats } from '@/lib/fundingAggregator';
 
+// 禁止 Next.js / Amplify CDN 缓存此路由
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export interface EarnRate {
   exchange: string;
   apr: number;
@@ -45,7 +49,7 @@ export async function GET() {
     if (cachedEarn && now - cachedEarn.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(
         { success: true, data: cachedEarn.data, timestamp: cachedEarn.timestamp, cached: true },
-        { headers: { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=120' } }
+        { headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
