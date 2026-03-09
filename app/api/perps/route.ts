@@ -3,9 +3,9 @@ import { getBinancePerps } from '@/lib/exchanges/binance';
 import { getBybitPerps } from '@/lib/exchanges/bybit';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-export const maxDuration = 60; // Vercel/Amplify 函数超时设为 60 秒
+// ISR: 每 120 秒后台自动重新验证
+export const revalidate = 120;
+export const maxDuration = 60;
 
 /** 带超时的 Promise 包装 */
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -65,19 +65,12 @@ export async function GET() {
       cachedPerpsDateKey = null;
     }
     if (cachedPerps && now - cachedPerps.timestamp < CACHE_TTL_MS) {
-      return NextResponse.json(
-        {
-          success: true,
-          data: cachedPerps.data,
-          timestamp: cachedPerps.timestamp,
-          cached: true,
-        },
-        {
-          headers: {
-            'Cache-Control': 'no-store',
-          },
-        }
-      );
+      return NextResponse.json({
+        success: true,
+        data: cachedPerps.data,
+        timestamp: cachedPerps.timestamp,
+        cached: true,
+      });
     }
 
     // 并行获取各交易所数据（带超时保护，单个交易所超时不阻塞整体）

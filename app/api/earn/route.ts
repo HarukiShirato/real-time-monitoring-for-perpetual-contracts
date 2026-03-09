@@ -5,9 +5,9 @@ import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 import { batchGetFundingStats } from '@/lib/fundingAggregator';
 
-// 禁止 Next.js / Amplify CDN 缓存此路由
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+// ISR: 每 300 秒（5 分钟）后台自动重新验证，用户访问秒返回缓存
+export const revalidate = 300;
+export const maxDuration = 60;
 
 export interface EarnRate {
   exchange: string;
@@ -39,7 +39,15 @@ export interface CombinedEarnRow {
   marketCap: number | null;
 }
 
-// 进程级缓存
+/** 带超时的 Promise 包装 */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+// 进程级缓存（ISR 之外的二级缓存，Lambda 存活期间生效）
 const CACHE_TTL_MS = 120 * 1000; // 120s（含资金费率历史，变化慢）
 let cachedEarn: { data: CombinedEarnRow[]; timestamp: number } | null = null;
 
@@ -49,15 +57,14 @@ export async function GET() {
     if (cachedEarn && now - cachedEarn.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(
         { success: true, data: cachedEarn.data, timestamp: cachedEarn.timestamp, cached: true },
-        { headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
-    // 并行获取三个交易所 earn 产品
+    // 并行获取三个交易所 earn 产品（带超时保护，单个交易所超时不阻塞整体）
     const [binanceProducts, bybitProducts, okxProducts] = await Promise.all([
-      getBinanceEarnProducts(),
-      getBybitEarnProducts(),
-      getOkxEarnProducts(),
+      withTimeout(getBinanceEarnProducts(), 25000, []),
+      withTimeout(getBybitEarnProducts(), 25000, []),
+      withTimeout(getOkxEarnProducts(), 25000, []),
     ]);
 
     console.log(`[earn] Binance: ${binanceProducts.length}, Bybit: ${bybitProducts.length}, OKX: ${okxProducts.length}`);
@@ -82,11 +89,11 @@ export async function GET() {
 
     const allAssets = Array.from(assetMap.keys());
 
-    // 并行获取：资金费率历史 + 市值数据
+    // 并行获取：资金费率历史 + 市值数据（带超时保护）
     const symbols = allAssets.map(a => a + 'USDT');
     const [fundingMap, marketDataMap] = await Promise.all([
-      batchGetFundingStats(allAssets),
-      getBatchMarketDataForSymbols(symbols),
+      withTimeout(batchGetFundingStats(allAssets), 30000, new Map()),
+      withTimeout(getBatchMarketDataForSymbols(symbols), 15000, new Map()),
     ]);
 
     // 构建 combined 行
