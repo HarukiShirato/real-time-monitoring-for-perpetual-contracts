@@ -46,6 +46,7 @@ export default function Home() {
   );
   const [earnSearchQuery, setEarnSearchQuery] = useState('');
   const [earnMinCombinedApr, setEarnMinCombinedApr] = useState(0);
+  const [earnMinOi, setEarnMinOi] = useState(0);
 
   // ========== 数据获取 ==========
   const fetchPerpData = useCallback(async () => {
@@ -169,6 +170,30 @@ export default function Home() {
     });
   }, [data, selectedExchanges, searchQuery, minOi, minFundOiRatio, minMarketCap, minFdv, selectedIntervals]);
 
+  // ========== 从永续数据中提取每个 asset 的最大 OI ==========
+  const assetOiMap = useMemo(() => {
+    const oiMap = new Map<string, number>();
+    for (const item of data) {
+      // 从合约符号提取基础币种：BTCUSDT → BTC, 1000PEPEUSDT → PEPE
+      let base = item.symbol.replace(/USDT$/, '');
+      // 处理 1000PEPE, 1000SATS, 1000RATS 等带倍数前缀的合约
+      const multiplierMatch = base.match(/^(\d+)(.+)$/);
+      if (multiplierMatch) {
+        const prefix = parseInt(multiplierMatch[1]);
+        if (prefix >= 1000) {
+          base = multiplierMatch[2];
+        }
+      }
+      base = base.toUpperCase();
+      const current = oiMap.get(base) || 0;
+      // 取所有交易所中该 asset 的最大 OI
+      if (item.openInterestValue > current) {
+        oiMap.set(base, item.openInterestValue);
+      }
+    }
+    return oiMap;
+  }, [data]);
+
   // ========== 理财过滤 ==========
   const filteredEarnData = useMemo(() => {
     return earnData.filter(item => {
@@ -179,9 +204,14 @@ export default function Home() {
       }
       if (earnSearchQuery && !item.asset.toLowerCase().includes(earnSearchQuery.toLowerCase())) return false;
       if (earnMinCombinedApr > 0 && item.combined7d * 100 < earnMinCombinedApr) return false;
+      // OI 筛选：从永续数据中匹配该 asset 的 OI
+      if (earnMinOi > 0) {
+        const oi = assetOiMap.get(item.asset.toUpperCase()) || 0;
+        if (oi < earnMinOi) return false;
+      }
       return true;
     });
-  }, [earnData, earnSelectedExchanges, earnSearchQuery, earnMinCombinedApr]);
+  }, [earnData, earnSelectedExchanges, earnSearchQuery, earnMinCombinedApr, earnMinOi, assetOiMap]);
 
   // ========== 辅助 ==========
   const maxOi = useMemo(() => {
@@ -370,6 +400,8 @@ export default function Home() {
                 <EarnFilterControls
                   minCombinedApr={earnMinCombinedApr}
                   onMinCombinedAprChange={setEarnMinCombinedApr}
+                  minOi={earnMinOi}
+                  onMinOiChange={setEarnMinOi}
                 />
                 <div className="flex-1" />
                 <div className="text-sm text-brand-text-secondary font-medium px-4 py-1.5 bg-brand-dark/50 rounded-md border border-brand-border/50">

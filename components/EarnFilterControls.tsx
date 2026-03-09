@@ -3,12 +3,27 @@
 interface EarnFilterControlsProps {
   minCombinedApr: number;
   onMinCombinedAprChange: (value: number) => void;
+  minOi: number;
+  onMinOiChange: (value: number) => void;
 }
 
 export default function EarnFilterControls({
   minCombinedApr,
   onMinCombinedAprChange,
+  minOi,
+  onMinOiChange,
 }: EarnFilterControlsProps) {
+  const MILLION = 1_000_000;
+  const SLIDER_MAX = 100 * MILLION;
+  const displayOiMillions = minOi / MILLION;
+  const percentage = Math.min(100, (minOi / SLIDER_MAX) * 100);
+
+  const formatMillions = (value: number) => {
+    if (value >= 100) return value.toFixed(0);
+    if (value >= 10) return value.toFixed(1);
+    return value.toFixed(2);
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-6 text-sm">
       <div className="flex items-center gap-3">
@@ -28,6 +43,78 @@ export default function EarnFilterControls({
           <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
             <span className="text-brand-text-muted text-xs">%</span>
           </div>
+        </div>
+      </div>
+
+      <div className="w-px h-8 bg-brand-border hidden sm:block" />
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="text-brand-text-secondary whitespace-nowrap font-medium">
+          Min OI
+        </label>
+        <div className="flex items-center gap-2">
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+              <span className="text-brand-text-muted text-xs">$</span>
+            </div>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={Number.isFinite(displayOiMillions) ? Number(displayOiMillions.toFixed(3)) : 0}
+              onChange={(e) => {
+                const parsed = Number(e.target.value);
+                if (Number.isNaN(parsed)) {
+                  onMinOiChange(0);
+                } else {
+                  onMinOiChange(Math.max(0, parsed) * MILLION);
+                }
+              }}
+              className="w-24 pl-4 pr-2 py-1 bg-brand-surface border border-brand-border rounded text-brand-text-primary focus:outline-none focus:border-brand-accent text-xs font-mono"
+            />
+          </div>
+
+          <div className="relative w-32 h-6 flex items-center group">
+            <input
+              type="range"
+              min="0"
+              max={SLIDER_MAX}
+              step={MILLION}
+              value={Math.min(minOi, SLIDER_MAX)}
+              onChange={(e) => onMinOiChange(Number(e.target.value))}
+              className="w-full absolute h-1.5 rounded-full appearance-none cursor-pointer bg-brand-border z-10"
+              style={{
+                background: `linear-gradient(to right, #0B99FF ${percentage}%, #2B3139 ${percentage}%)`
+              }}
+            />
+            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-brand-surface border border-brand-border text-brand-text-secondary text-[10px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+              Max Slider: 100M
+            </div>
+            <style jsx>{`
+              input[type=range]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                height: 14px;
+                width: 14px;
+                border-radius: 50%;
+                background: #0B99FF;
+                cursor: pointer;
+                margin-top: 0px;
+                border: 2px solid #fff;
+                box-shadow: 0 0 0 2px rgba(11, 153, 255, 0.2);
+              }
+              input[type=range]::-moz-range-thumb {
+                height: 14px;
+                width: 14px;
+                border: 2px solid #fff;
+                border-radius: 50%;
+                background: #0B99FF;
+                cursor: pointer;
+              }
+            `}</style>
+          </div>
+          <span className="text-brand-text-secondary text-xs font-mono whitespace-nowrap">
+            ≥ ${formatMillions(displayOiMillions)}M
+          </span>
         </div>
       </div>
     </div>
