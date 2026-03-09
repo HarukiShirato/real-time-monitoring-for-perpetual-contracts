@@ -5,6 +5,15 @@ import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const maxDuration = 60; // Vercel/Amplify 函数超时设为 60 秒
+
+/** 带超时的 Promise 包装 */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
 
 // 简单的进程级缓存，降低对上游 API 的压力
 const CACHE_TTL_MS = 60 * 1000; // 60s
@@ -71,10 +80,10 @@ export async function GET() {
       );
     }
 
-    // 并行获取各交易所数据
+    // 并行获取各交易所数据（带超时保护，单个交易所超时不阻塞整体）
     const [binanceData, bybitData] = await Promise.all([
-      getBinancePerps(),
-      getBybitPerps(),
+      withTimeout(getBinancePerps(), 25000, []),
+      withTimeout(getBybitPerps(), 25000, []),
     ]);
 
     // 合并数据并转换为统一格式
@@ -133,9 +142,13 @@ export async function GET() {
       });
     });
 
-    // 批量获取市值数据（只获取唯一币种）
+    // 批量获取市值数据（只获取唯一币种，带超时保护）
     const uniqueSymbols = [...new Set(allSymbols)];
-    const marketDataMap = await getBatchMarketDataForSymbols(uniqueSymbols);
+    const marketDataMap = await withTimeout(
+      getBatchMarketDataForSymbols(uniqueSymbols),
+      15000,
+      new Map()
+    );
 
     // 填充市值数据
     perpsMap.forEach((perp, key) => {

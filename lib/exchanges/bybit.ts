@@ -74,10 +74,9 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
     // 参考: https://bybit-exchange.github.io/docs/v5/market/open-interest
     const oiMap = new Map<string, { contracts: number; value: number }>();
     
-    // 批量获取 OI 数据，平衡速度和速率限制
-    // Bybit API 限制：每秒最多 10 次请求
-    const batchSize = 15; // 增加批次大小到 15
-    const delayBetweenBatches = 200; // 减少延迟到 200ms
+    // 批量获取 OI 数据
+    const batchSize = 25;
+    const delayBetweenBatches = 100;
     
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
@@ -91,6 +90,7 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
               intervalTime: '5min',
               limit: 1,
             },
+            timeout: 5000,
           });
 
           if (response.data.retCode === 0 && response.data.result.list.length > 0) {
@@ -107,7 +107,6 @@ export async function getBybitPerps(): Promise<BybitPerpData[]> {
           }
           return null;
         } catch (error) {
-          console.error(`获取 ${symbol} OI 失败:`, error);
           return null;
         }
       });
