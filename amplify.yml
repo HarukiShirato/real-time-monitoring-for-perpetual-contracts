@@ -6,6 +6,8 @@ frontend:
         - npm ci
     build:
       commands:
+        - echo "BINANCE_API_KEY=$BINANCE_API_KEY" >> .env
+        - echo "BINANCE_API_SECRET=$BINANCE_API_SECRET" >> .env
         - npm run build
   artifacts:
     baseDirectory: .next
