@@ -4,6 +4,7 @@ import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 import { batchGetFundingStats, getOpenInterestMap } from '@/lib/fundingAggregator';
+import { getOkxRealEarnRates } from '@/lib/okxRealEarn';
 
 // 跳过构建时预渲染，由进程级缓存 + funding 缓存 控制刷新
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,8 @@ export const maxDuration = 60;
 export interface EarnRate {
   exchange: string;
   apr: number;
+  apr3d?: number;  // 真实 3d 平均（如有）
+  apr7d?: number;  // 真实 7d 平均（如有）
 }
 
 export interface FundingRate {
@@ -92,18 +95,29 @@ export async function GET() {
     const allAssets = Array.from(assetMap.keys());
     const symbols = allAssets.map(a => a + 'USDT');
 
-    // 并行获取：资金费率 + OI + 市值数据（coinImage/coinName）
-    const [fundingMap, oiMap, marketDataMap] = await Promise.all([
+    // 并行获取：资金费率 + OI + 市值数据 + OKX 真实收益率
+    const [fundingMap, oiMap, marketDataMap, okxRealMap] = await Promise.all([
       withTimeout(batchGetFundingStats(allAssets), 55000, new Map()),
       withTimeout(getOpenInterestMap(allAssets), 55000, new Map()),
       withTimeout(getBatchMarketDataForSymbols(symbols), 15000, new Map()),
+      withTimeout(getOkxRealEarnRates(), 15000, new Map()),
     ]);
 
     const rows: CombinedEarnRow[] = [];
 
     for (const [asset, exchMap] of assetMap.entries()) {
+      // 构建 earnRates，OKX 附带真实 3d/7d
+      const okxReal = okxRealMap.get(asset);
+
       const earnRates: EarnRate[] = Array.from(exchMap.entries())
-        .map(([exchange, apr]) => ({ exchange, apr }))
+        .map(([exchange, apr]) => {
+          const rate: EarnRate = { exchange, apr };
+          if (exchange === 'OKX' && okxReal) {
+            rate.apr3d = okxReal.apr3d;
+            rate.apr7d = okxReal.apr7d;
+          }
+          return rate;
+        })
         .sort((a, b) => b.apr - a.apr);
 
       const bestEarnApr = earnRates[0]?.apr || 0;
@@ -139,8 +153,16 @@ export async function GET() {
         }
       }
 
-      const bestEarn3d = bestEarnApr;
-      const bestEarn7d = bestEarnApr;
+      // bestEarn3d/7d: 如果有 OKX 真实数据，用真实值参与比较
+      // 对于没有真实数据的交易所，3d/7d = 广告 APR
+      let bestEarn3d = 0;
+      let bestEarn7d = 0;
+      for (const er of earnRates) {
+        const e3d = er.apr3d ?? er.apr;
+        const e7d = er.apr7d ?? er.apr;
+        if (e3d > bestEarn3d) bestEarn3d = e3d;
+        if (e7d > bestEarn7d) bestEarn7d = e7d;
+      }
 
       const md = marketDataMap.get(asset + 'USDT');
 
@@ -165,12 +187,13 @@ export async function GET() {
     }
 
     const withFunding = rows.filter(r => r.funding.length > 0).length;
+    const withRealEarn = rows.filter(r => r.earnRates.some(e => e.apr3d !== undefined)).length;
     const fundingRatio = rows.length > 0 ? withFunding / rows.length : 1;
     if (fundingRatio > 0.80) {
       cachedEarn = { data: rows, timestamp: now };
-      console.log('[earn] cached (' + withFunding + '/' + rows.length + ' have funding)');
+      console.log(`[earn] cached (${withFunding}/${rows.length} funding, ${withRealEarn} with real OKX earn)`);
     } else {
-      console.log('[earn] NOT caching (' + withFunding + '/' + rows.length + ' have funding)');
+      console.log(`[earn] NOT caching (${withFunding}/${rows.length} funding, ${withRealEarn} with real OKX earn)`);
     }
 
     return NextResponse.json({
@@ -181,6 +204,7 @@ export async function GET() {
         binance: binanceProducts.length,
         bybit: bybitProducts.length,
         okx: okxProducts.length,
+        okxRealAssets: okxRealMap.size,
       },
     });
   } catch (error) {
