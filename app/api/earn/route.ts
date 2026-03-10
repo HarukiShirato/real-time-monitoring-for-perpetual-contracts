@@ -80,6 +80,7 @@ export async function GET() {
       'PYUSD', 'GUSD', 'FRAX', 'LUSD', 'SUSD', 'CUSD', 'EURC', 'EURI',
       'AEUR', 'UST', 'USTC', 'USDE', 'USDJ', 'DOLA', 'GHO', 'CRVUSD',
       'MKUSD', 'USD0',
+      'CMETH', 'METH', 'BNSOL', 'RLUSD', 'WBETH', 'WBTC', 'WETH', 'STETH', 'WSTETH', 'CBETH', 'RETH', 'MSOL', 'JITOSOL',
     ]);
     const assetMap = new Map<string, Map<string, number>>();
 
@@ -168,6 +169,10 @@ export async function GET() {
         if (e3d > bestEarn3d) bestEarn3d = e3d;
         if (e7d > bestEarn7d) bestEarn7d = e7d;
       }
+      // Native staking competes with earn (pick the higher one)
+      const stkApr = stakingMap.get(asset) ?? 0;
+      if (stkApr > bestEarn3d) bestEarn3d = stkApr;
+      if (stkApr > bestEarn7d) bestEarn7d = stkApr;
 
       const md = marketDataMap.get(asset + 'USDT');
 
