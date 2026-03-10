@@ -33,6 +33,7 @@ export interface CombinedEarnRow {
   coinName?: string;
   binanceOI: number | null;
   bybitOI: number | null;
+  hyperliquidOI: number | null;
   marketCap: number | null;
   stakingApr: number | null;
 }
@@ -316,6 +317,9 @@ export default function EarnTable({ data }: EarnTableProps) {
                                   )}
                                   {(item.bybitOI != null && item.bybitOI > 0) && (
                                     <span className="text-xs text-brand-text-muted font-mono">Bybit OI: {formatNumber(item.bybitOI, 1)}</span>
+                                  )}
+                                  {(item.hyperliquidOI != null && item.hyperliquidOI > 0) && (
+                                    <span className="text-xs text-brand-text-muted font-mono">HL OI: {formatNumber(item.hyperliquidOI, 1)}</span>
                                   )}
                                 </div>
                                 <div className="space-y-2">
