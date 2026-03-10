@@ -3,8 +3,9 @@ import { getBinanceEarnProducts } from '@/lib/exchanges/binanceEarn';
 import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
-import { batchGetFundingStats, getOpenInterestMap } from '@/lib/fundingAggregator';
+import { batchGetFundingStats, getOpenInterestMap, ExchangeOI } from '@/lib/fundingAggregator';
 import { getOkxRealEarnRates } from '@/lib/okxRealEarn';
+import { getStakingRewardsMap } from "@/lib/stakingRewards";
 
 // 跳过构建时预渲染，由进程级缓存 + funding 缓存 控制刷新
 export const dynamic = 'force-dynamic';
@@ -39,8 +40,10 @@ export interface CombinedEarnRow {
   combined7d: number;
   coinImage?: string;
   coinName?: string;
-  openInterest: number | null;
+  binanceOI: number | null;
+  bybitOI: number | null;
   marketCap: number | null;
+  stakingApr: number | null;
 }
 
 /** 带超时的 Promise 包装 */
@@ -97,11 +100,12 @@ export async function GET() {
     const symbols = allAssets.map(a => a + 'USDT');
 
     // 并行获取：资金费率 + OI + 市值数据 + OKX 真实收益率
-    const [fundingMap, oiMap, marketDataMap, okxRealMap] = await Promise.all([
+    const [fundingMap, oiMap, marketDataMap, okxRealMap, stakingMap] = await Promise.all([
       withTimeout(batchGetFundingStats(allAssets), 55000, new Map()),
       withTimeout(getOpenInterestMap(allAssets), 55000, new Map()),
       withTimeout(getBatchMarketDataForSymbols(symbols), 15000, new Map()),
       withTimeout(getOkxRealEarnRates(), 15000, new Map()),
+      withTimeout(getStakingRewardsMap(), 10000, new Map()),
     ]);
 
     const rows: CombinedEarnRow[] = [];
@@ -183,7 +187,9 @@ export async function GET() {
         combined7d: bestEarn7d + bestFunding7d,
         coinImage: md?.image,
         coinName: md?.name,
-        openInterest: oiMap.get(asset) ?? null,
+        binanceOI: oiMap.get(asset)?.binance ?? null,
+        bybitOI: oiMap.get(asset)?.bybit ?? null,
+        stakingApr: stakingMap.get(asset) ?? null,
         marketCap: md?.marketCap ?? null,
       });
     }

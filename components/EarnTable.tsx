@@ -31,8 +31,10 @@ export interface CombinedEarnRow {
   combined7d: number;
   coinImage?: string;
   coinName?: string;
-  openInterest: number | null;
+  binanceOI: number | null;
+  bybitOI: number | null;
   marketCap: number | null;
+  stakingApr: number | null;
 }
 
 type SortKey = 'asset' | 'bestEarn3d' | 'bestEarn7d' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'marketCap' | 'none';
@@ -297,13 +299,27 @@ export default function EarnTable({ data }: EarnTableProps) {
                               </div>
                             </div>
 
+                            {/* Staking (SRR) */}
+                            {item.stakingApr != null && item.stakingApr > 0 && (
+                              <div className="flex-1 max-w-xs">
+                                <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-2">Native Staking</div>
+                                <div className="flex items-center justify-between gap-3 text-sm">
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-purple-500/10 text-purple-400 border-purple-500/20">Staking</span>
+                                  <span className="text-brand-success font-semibold font-mono">{formatPct(item.stakingApr)}</span>
+                                </div>
+                              </div>
+                            )}
+
                             {/* Funding 明细 */}
                             {item.funding.length > 0 && (
                               <div className="flex-1">
                                 <div className="flex items-center gap-4 mb-2">
                                   <span className="text-xs uppercase tracking-wider text-brand-text-secondary">Funding Rates (Annualized)</span>
-                                  {item.openInterest != null && item.openInterest > 0 && (
-                                    <span className="text-xs text-brand-text-muted font-mono">OI: {formatNumber(item.openInterest, 1)}</span>
+                                  {(item.binanceOI != null && item.binanceOI > 0) && (
+                                    <span className="text-xs text-brand-text-muted font-mono">Binance OI: {formatNumber(item.binanceOI, 1)}</span>
+                                  )}
+                                  {(item.bybitOI != null && item.bybitOI > 0) && (
+                                    <span className="text-xs text-brand-text-muted font-mono">Bybit OI: {formatNumber(item.bybitOI, 1)}</span>
                                   )}
                                 </div>
                                 <div className="space-y-2">

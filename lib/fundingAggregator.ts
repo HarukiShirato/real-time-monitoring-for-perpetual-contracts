@@ -199,19 +199,27 @@ export async function batchGetFundingStats(assets: string[]): Promise<Map<string
   return result;
 }
 
+export interface ExchangeOI {
+  binance: number;
+  bybit: number;
+}
+
 /**
- * 获取 OI 数据（USDT 计价）
+ * 获取各交易所 OI 数据（USDT 计价）
  */
-export async function getOpenInterestMap(assets: string[]): Promise<Map<string, number>> {
+export async function getOpenInterestMap(assets: string[]): Promise<Map<string, ExchangeOI>> {
   const snapshot = await getLatestSnapshot();
-  const result = new Map<string, number>();
+  const result = new Map<string, ExchangeOI>();
 
   for (const a of assets) {
     const upper = a.toUpperCase();
     const is1000x = EXCHANGE_1000X_ASSETS.has(upper);
     const symbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
+    const binanceOI = snapshot.binanceOI.get(symbol) ?? 0;
     const bybitOI = snapshot.bybitOI.get(symbol) ?? 0;
-    if (bybitOI > 0) result.set(upper, bybitOI);
+    if (binanceOI > 0 || bybitOI > 0) {
+      result.set(upper, { binance: binanceOI, bybit: bybitOI });
+    }
   }
 
   return result;
