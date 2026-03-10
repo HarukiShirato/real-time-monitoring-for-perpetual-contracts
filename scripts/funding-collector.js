@@ -16,7 +16,7 @@ const BINANCE_FAPI = 'https://www.binance.com';  // www proxy avoids 403 on fapi
 const BYBIT_API = 'https://api.bybit.com';
 
 /* ── Store ── */
-let store = { binance: {}, bybit: {}, updatedAt: 0 };
+let store = { binance: {}, bybit: {}, hyperliquid: {}, updatedAt: 0 };
 
 function loadStore() {
   try {
@@ -24,8 +24,9 @@ function loadStore() {
       const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
       store.binance = saved.binance || {};
       store.bybit = saved.bybit || {};
+      store.hyperliquid = saved.hyperliquid || {};
       store.updatedAt = saved.updatedAt || 0;
-      console.log(`[collector] Loaded: bn=${Object.keys(store.binance).length}, by=${Object.keys(store.bybit).length}`);
+      console.log(`[collector] Loaded: bn=${Object.keys(store.binance).length}, by=${Object.keys(store.bybit).length}, hl=${Object.keys(store.hyperliquid).length}`);
     }
   } catch (e) {
     console.error('[collector] Load failed:', e.message);
@@ -80,7 +81,7 @@ async function collectBinance() {
     } catch {
       fail++;
     }
-    await sleep(200); // 每个请求间隔 200ms，不触发 rate limit
+    await sleep(1800); // ~1.8s per request, ~20min for all Binance symbols
   }
   console.log(`[collector] Binance: ${success} ok, ${fail} fail (${symbols.length} total)`);
 }
@@ -122,9 +123,56 @@ async function collectBybit() {
     } catch {
       fail++;
     }
-    await sleep(200);
+    await sleep(1200); // ~1.2s per request for Bybit
   }
   console.log(`[collector] Bybit: ${success} ok, ${fail} fail (${symbolsData.length} total)`);
+}
+
+
+/* ── Hyperliquid: 获取主流永续合约资金费率历史 (过滤HIP-3) ── */
+async function collectHyperliquid() {
+  let coins;
+  try {
+    const metaRes = await axios.post('https://api.hyperliquid.xyz/info',
+      { type: 'meta' },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    // Only keep non-delisted tokens with maxLeverage > 3 (filters out HIP-3)
+    coins = metaRes.data.universe
+      .filter(m => !m.isDelisted && m.maxLeverage > 3)
+      .map(m => m.name);
+  } catch (e) {
+    console.error('[collector] Hyperliquid meta failed:', e.message);
+    return;
+  }
+
+  const startTime = Date.now() - MAX_AGE_MS;
+  let success = 0, fail = 0;
+  for (const coin of coins) {
+    try {
+      const res = await axios.post('https://api.hyperliquid.xyz/info',
+        { type: 'fundingHistory', coin, startTime },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
+      );
+      const rates = (res.data || []).map(item => ({
+        time: item.time,
+        rate: parseFloat(item.fundingRate || '0'),
+      }));
+      if (rates.length > 0) {
+        // Handle k-prefix: kPEPE -> PEPEUSDT, kSHIB -> SHIBUSDT etc.
+        let symbol = coin;
+        if (coin.startsWith('k') && coin.length > 1 && coin[1] === coin[1].toUpperCase()) {
+          symbol = coin.substring(1);
+        }
+        store.hyperliquid[symbol + 'USDT'] = rates;
+        success++;
+      }
+    } catch {
+      fail++;
+    }
+    await sleep(800); // ~0.8s per request for Hyperliquid
+  }
+  console.log('[collector] Hyperliquid: ' + success + ' ok, ' + fail + ' fail (' + coins.length + ' total)');
 }
 
 /* ── 采集一轮 ── */
@@ -132,11 +180,11 @@ async function collectAll() {
   const start = Date.now();
   console.log(`[collector] Starting collection at ${new Date().toISOString()}`);
 
-  await Promise.all([collectBinance(), collectBybit()]);
+  await Promise.all([collectBinance(), collectBybit(), collectHyperliquid()]);
   saveStore();
 
   const elapsed = Math.round((Date.now() - start) / 1000);
-  console.log(`[collector] Done in ${elapsed}s. bn=${Object.keys(store.binance).length}, by=${Object.keys(store.bybit).length}`);
+  console.log(`[collector] Done in ${elapsed}s. bn=${Object.keys(store.binance).length}, by=${Object.keys(store.bybit).length}, hl=${Object.keys(store.hyperliquid).length}`);
 }
 
 /* ── 主循环 ── */

@@ -33,6 +33,7 @@ export interface CombinedEarnRow {
   coinName?: string;
   binanceOI: number | null;
   bybitOI: number | null;
+  hyperliquidOI: number | null;
   marketCap: number | null;
   stakingApr: number | null;
 }

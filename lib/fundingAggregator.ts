@@ -15,6 +15,8 @@ export interface FundingStats {
   binance7d: number;
   bybit3d: number;
   bybit7d: number;
+  hyperliquid3d: number;
+  hyperliquid7d: number;
 }
 
 const BINANCE_FAPI = 'https://www.binance.com';  // www proxy avoids 403
@@ -27,6 +29,7 @@ interface SettledRate { time: number; rate: number; }
 interface FundingHistoryData {
   binance: Record<string, SettledRate[]>;
   bybit: Record<string, { intervalHours: number; rates: SettledRate[] }>;
+  hyperliquid: Record<string, SettledRate[]>;
   updatedAt: number;
 }
 
@@ -35,8 +38,10 @@ const SNAPSHOT_CACHE_TTL = 5 * 60 * 1000;
 interface RateSnapshot {
   binance: Map<string, number>;
   bybit: Map<string, number>;
+  hyperliquid: Map<string, number>;
   binanceOI: Map<string, number>;
   bybitOI: Map<string, number>;
+  hyperliquidOI: Map<string, number>;
   timestamp: number;
 }
 
@@ -121,20 +126,51 @@ async function fetchBybitData(): Promise<{ rates: Map<string, number>; oi: Map<s
   return { rates, oi };
 }
 
+
+/* ── Bulk snapshot: Hyperliquid ── */
+async function fetchHyperliquidData(): Promise<{ rates: Map<string, number>; oi: Map<string, number> }> {
+  const rates = new Map<string, number>();
+  const oi = new Map<string, number>();
+  try {
+    const res = await axios.post('https://api.hyperliquid.xyz/info',
+      { type: 'metaAndAssetCtxs' },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    const meta = res.data[0];
+    const ctxs = res.data[1];
+    for (let i = 0; i < meta.universe.length; i++) {
+      const coin = meta.universe[i].name;
+      const ctx = ctxs[i];
+      const symbol = coin + 'USDT';
+      rates.set(symbol, parseFloat(ctx.funding || '0'));
+      const oiVal = parseFloat(ctx.openInterest || '0');
+      const markPx = parseFloat(ctx.markPx || '0');
+      if (oiVal > 0 && markPx > 0) oi.set(symbol, oiVal * markPx);
+    }
+    console.log(`[funding] Hyperliquid: ${rates.size} symbols, ${oi.size} with OI`);
+  } catch (e: any) {
+    console.error(`[funding] Hyperliquid fetch failed: ${e.message}`);
+  }
+  return { rates, oi };
+}
+
 async function getLatestSnapshot(): Promise<RateSnapshot> {
   const store = getStore();
   if (store.snapshot && Date.now() - store.snapshot.timestamp < SNAPSHOT_CACHE_TTL) {
     return store.snapshot;
   }
-  const [binanceData, bybitData] = await Promise.all([
+  const [binanceData, bybitData, hlData] = await Promise.all([
     fetchBinanceData(),
     fetchBybitData(),
+    fetchHyperliquidData(),
   ]);
   const snapshot: RateSnapshot = {
     binance: binanceData.rates,
     bybit: bybitData.rates,
+    hyperliquid: hlData.rates,
     binanceOI: binanceData.oi,
     bybitOI: bybitData.oi,
+    hyperliquidOI: hlData.oi,
     timestamp: Date.now(),
   };
   store.snapshot = snapshot;
@@ -186,7 +222,15 @@ export async function batchGetFundingStats(assets: string[]): Promise<Map<string
       bybit7d = calcAprFromSettled(byData.rates, 7, intervalH);
     }
 
-    result.set(upper, { binance3d, binance7d, bybit3d, bybit7d });
+    // Hyperliquid: 从文件读取，1h结算间隔
+    let hyperliquid3d = 0, hyperliquid7d = 0;
+    const hlHist = histData?.hyperliquid?.[upper + 'USDT'];
+    if (hlHist && hlHist.length > 0) {
+      hyperliquid3d = calcAprFromSettled(hlHist, 3, 1);
+      hyperliquid7d = calcAprFromSettled(hlHist, 7, 1);
+    }
+
+    result.set(upper, { binance3d, binance7d, bybit3d, bybit7d, hyperliquid3d, hyperliquid7d });
   }
 
   const withData = [...result.values()].filter(s =>
@@ -195,13 +239,15 @@ export async function batchGetFundingStats(assets: string[]): Promise<Map<string
   const bnSymCount = histData ? Object.keys(histData.binance || {}).length : 0;
   const bySymCount = histData ? Object.keys(histData.bybit || {}).length : 0;
   const age = histData ? Math.round((Date.now() - (histData.updatedAt || 0)) / 1000) : -1;
-  console.log(`[funding] ${withData}/${result.size} have data (file: bn=${bnSymCount} by=${bySymCount}, age=${age}s)`);
+  const hlSymCount = histData ? Object.keys(histData.hyperliquid || {}).length : 0;
+  console.log(`[funding] ${withData}/${result.size} have data (file: bn=${bnSymCount} by=${bySymCount} hl=${hlSymCount}, age=${age}s)`);
   return result;
 }
 
 export interface ExchangeOI {
   binance: number;
   bybit: number;
+  hyperliquid: number;
 }
 
 /**
@@ -227,8 +273,9 @@ export async function getOpenInterestMap(assets: string[]): Promise<Map<string, 
     const symbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
     const binanceOI = fileBinanceOI[symbol] ?? snapshot.binanceOI.get(symbol) ?? 0;
     const bybitOI = snapshot.bybitOI.get(symbol) ?? 0;
-    if (binanceOI > 0 || bybitOI > 0) {
-      result.set(upper, { binance: binanceOI, bybit: bybitOI });
+    const hlOI = snapshot.hyperliquidOI.get(symbol) ?? 0;
+    if (binanceOI > 0 || bybitOI > 0 || hlOI > 0) {
+      result.set(upper, { binance: binanceOI, bybit: bybitOI, hyperliquid: hlOI });
     }
   }
 
