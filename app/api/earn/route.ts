@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import { getBinanceEarnProducts } from '@/lib/exchanges/binanceEarn';
 import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
-import { getBatchMarketDataForSymbols } from '@/lib/marketData';
+// Market cap now from file (Binance products, collected every 8h)
 import { batchGetFundingStats, getOpenInterestMap, ExchangeOI } from '@/lib/fundingAggregator';
 import { getOkxRealEarnRates } from '@/lib/okxRealEarn';
-import { getStakingRewardsMap } from "@/lib/stakingRewards";
+import { getStakingRewardsMap, getMarketCapsFromFile } from "@/lib/stakingRewards";
 
 // 跳过构建时预渲染，由进程级缓存 + funding 缓存 控制刷新
 export const dynamic = 'force-dynamic';
@@ -104,7 +104,7 @@ export async function GET() {
     const [fundingMap, oiMap, marketDataMap, okxRealMap, stakingMap] = await Promise.all([
       withTimeout(batchGetFundingStats(allAssets), 55000, new Map()),
       withTimeout(getOpenInterestMap(allAssets), 55000, new Map()),
-      withTimeout(getBatchMarketDataForSymbols(symbols), 15000, new Map()),
+      withTimeout(getMarketCapsFromFile(), 10000, new Map()),
       withTimeout(getOkxRealEarnRates(), 15000, new Map()),
       withTimeout(getStakingRewardsMap(), 10000, new Map()),
     ]);
@@ -170,7 +170,7 @@ export async function GET() {
         if (e7d > bestEarn7d) bestEarn7d = e7d;
       }
 
-      const md = marketDataMap.get(asset + 'USDT');
+      const md = marketDataMap.get(asset);
 
       rows.push({
         asset,
@@ -186,12 +186,12 @@ export async function GET() {
         bestFundingExchange7d,
         combined3d: Math.max(bestEarn3d, stakingMap.get(asset) ?? 0) + bestFunding3d,
         combined7d: Math.max(bestEarn7d, stakingMap.get(asset) ?? 0) + bestFunding7d,
-        coinImage: md?.image,
-        coinName: md?.name,
+        coinImage: undefined,
+        coinName: md?.name || undefined,
         binanceOI: oiMap.get(asset)?.binance ?? null,
         bybitOI: oiMap.get(asset)?.bybit ?? null,
         stakingApr: stakingMap.get(asset) ?? null,
-        marketCap: md?.marketCap ?? null,
+        marketCap: md?.mcap ?? null,
       });
     }
 

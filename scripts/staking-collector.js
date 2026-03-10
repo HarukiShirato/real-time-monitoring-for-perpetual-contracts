@@ -77,6 +77,34 @@ async function fetchLitStaking() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+
+async function fetchMarketCaps() {
+  const result = {};
+  try {
+    const res = await axios.get("https://www.binance.com/bapi/asset/v2/public/asset-service/product/get-products", {
+      params: { includeEtf: true },
+      headers: { "User-Agent": "Mozilla/5.0", "Accept-Encoding": "identity", "Accept": "application/json" },
+      timeout: 15000,
+    });
+    const items = res.data?.data || [];
+    let count = 0;
+    for (const item of items) {
+      if (!item.s || !item.s.endsWith("USDT")) continue;
+      const cs = parseFloat(item.cs || "0");
+      const price = parseFloat(item.c || "0");
+      if (cs > 0 && price > 0) {
+        const base = item.b || item.s.replace("USDT", "");
+        result[base] = { mcap: cs * price, price, cs, name: item.an || "" };
+        count++;
+      }
+    }
+    console.log("[staking] Market caps: " + count + " tokens from Binance");
+  } catch (e) {
+    console.error("[staking] Market caps fetch failed: " + e.message);
+  }
+  return result;
+}
+
 async function fetchBinanceOI() {
   const result = {};
   try {
@@ -129,6 +157,12 @@ async function collect() {
     }
   }
   
+  // Fetch Market Caps
+  const marketCaps = await fetchMarketCaps();
+  if (Object.keys(marketCaps).length > 0) {
+    existing.marketCaps = marketCaps;
+  }
+
   // Fetch Binance OI
   const binanceOI = await fetchBinanceOI();
   if (Object.keys(binanceOI).length > 0) {

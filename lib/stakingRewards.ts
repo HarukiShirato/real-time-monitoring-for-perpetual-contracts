@@ -34,3 +34,29 @@ export async function getStakingRewardsMap(): Promise<Map<string, number>> {
   cache = { data: result, ts: Date.now() };
   return result;
 }
+
+
+export interface FileMcap {
+  mcap: number;
+  price: number;
+  cs: number;
+  name: string;
+}
+
+export async function getMarketCapsFromFile(): Promise<Map<string, FileMcap>> {
+  const map = new Map<string, FileMcap>();
+  try {
+    const raw = fs.existsSync(DATA_FILE) ? JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) : null;
+    if (raw && raw.marketCaps) {
+      for (const [symbol, data] of Object.entries(raw.marketCaps)) {
+        const d = data as any;
+        if (d && d.mcap > 0) {
+          map.set(symbol, { mcap: d.mcap, price: d.price, cs: d.cs, name: d.name || "" });
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[stakingRewards] Failed to read market caps:", e);
+  }
+  return map;
+}
