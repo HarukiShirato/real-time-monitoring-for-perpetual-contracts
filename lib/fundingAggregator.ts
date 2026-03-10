@@ -17,7 +17,7 @@ export interface FundingStats {
   bybit7d: number;
 }
 
-const BINANCE_FAPI = 'https://fapi.binance.com';
+const BINANCE_FAPI = 'https://www.binance.com';  // www proxy avoids 403
 const BYBIT_API = 'https://api.bybit.com';
 const DATA_FILE = path.join(process.cwd(), 'data', 'funding-history.json');
 

@@ -12,7 +12,7 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'funding-history.json');
 const MAX_AGE_MS = 8 * 24 * 60 * 60 * 1000;
 
-const BINANCE_FAPI = 'https://fapi.binance.com';
+const BINANCE_FAPI = 'https://www.binance.com';  // www proxy avoids 403 on fapi.binance.com
 const BYBIT_API = 'https://api.bybit.com';
 
 /* ── Store ── */

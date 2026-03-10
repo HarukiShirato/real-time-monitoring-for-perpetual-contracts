@@ -81,6 +81,7 @@ export async function GET() {
       'AEUR', 'UST', 'USTC', 'USDE', 'USDJ', 'DOLA', 'GHO', 'CRVUSD',
       'MKUSD', 'USD0',
       'CMETH', 'METH', 'BNSOL', 'RLUSD', 'WBETH', 'WBTC', 'WETH', 'STETH', 'WSTETH', 'CBETH', 'RETH', 'MSOL', 'JITOSOL',
+      'U', 'XUSD', 'BBSOL',
     ]);
     const assetMap = new Map<string, Map<string, number>>();
 

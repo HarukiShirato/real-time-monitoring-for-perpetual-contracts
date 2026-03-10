@@ -105,11 +105,57 @@ async function fetchMarketCaps() {
   return result;
 }
 
+async function fetchMcapFallback(existingMcaps) {
+  // For tokens not in Binance products, use CryptoCompare as fallback
+  // CryptoCompare /data/pricemultifull supports up to ~50 symbols per call
+  const allMissing = [];
+  // We'll discover missing tokens later when the earn table requests them
+  // For now, try a predefined list of commonly missing tokens
+  const knownMissing = [
+    'SKY','HYPE','SONIC','AERO','ATH','BLAST','BRETT','BTT','BTTC',
+    'CORE','CRO','DEEP','DRIFT','ETHW','FLR','GOAT','GRASS','H','HNT',
+    'IP','KAS','LIT','MERL','MEW','MNT','MOG','MON','MOODENG','NEIROCTO',
+    'NIGHT','OKB','PI','POPCAT','SAFE','SATS','SPX','STRAX','TAIKO',
+    'TOMO','TOSHI','XAUT','XDC','ZETA','ZORA','BBSOL'
+  ].filter(s => !existingMcaps[s]);
+
+  if (knownMissing.length === 0) return existingMcaps;
+
+  try {
+    // CryptoCompare allows ~50 symbols per request
+    const batchSize = 50;
+    let filled = 0;
+    for (let i = 0; i < knownMissing.length; i += batchSize) {
+      const batch = knownMissing.slice(i, i + batchSize);
+      const res = await axios.get("https://min-api.cryptocompare.com/data/pricemultifull", {
+        params: { fsyms: batch.join(","), tsyms: "USD" },
+        timeout: 15000,
+      });
+      const raw = res.data?.RAW || {};
+      for (const [sym, currencies] of Object.entries(raw)) {
+        const info = currencies.USD || {};
+        const mcap = info.MKTCAP || 0;
+        const price = info.PRICE || 0;
+        const cs = info.CIRCULATINGSUPPLY || 0;
+        if (mcap > 0) {
+          existingMcaps[sym] = { mcap, price, cs, name: "" };
+          filled++;
+        }
+      }
+      if (i + batchSize < knownMissing.length) await sleep(500);
+    }
+    console.log("[staking] CryptoCompare fallback: filled " + filled + "/" + knownMissing.length + " missing tokens");
+  } catch (e) {
+    console.error("[staking] CryptoCompare fallback failed: " + e.message);
+  }
+  return existingMcaps;
+}
+
 async function fetchBinanceOI() {
   const result = {};
   try {
     // Get all symbols + prices from premiumIndex
-    const res = await axios.get("https://fapi.binance.com/fapi/v1/premiumIndex", { timeout: 15000 });
+    const res = await axios.get("https://www.binance.com/fapi/v1/premiumIndex", { timeout: 15000 });
     const symbols = res.data.filter(i => i.symbol.endsWith("USDT"));
     const priceMap = {};
     for (const s of symbols) priceMap[s.symbol] = parseFloat(s.markPrice || "0");
@@ -117,7 +163,7 @@ async function fetchBinanceOI() {
     let ok = 0;
     for (const s of symbols) {
       try {
-        const oiRes = await axios.get("https://fapi.binance.com/fapi/v1/openInterest", {
+        const oiRes = await axios.get("https://www.binance.com/fapi/v1/openInterest", {
           params: { symbol: s.symbol }, timeout: 5000,
         });
         const qty = parseFloat(oiRes.data?.openInterest || "0");
@@ -159,8 +205,9 @@ async function collect() {
   
   // Fetch Market Caps
   const marketCaps = await fetchMarketCaps();
-  if (Object.keys(marketCaps).length > 0) {
-    existing.marketCaps = marketCaps;
+  const mcapsWithFallback = await fetchMcapFallback(marketCaps);
+  if (Object.keys(mcapsWithFallback).length > 0) {
+    existing.marketCaps = mcapsWithFallback;
   }
 
   // Fetch Binance OI
