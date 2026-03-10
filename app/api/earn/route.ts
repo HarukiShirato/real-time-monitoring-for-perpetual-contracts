@@ -3,9 +3,9 @@ import { getBinanceEarnProducts } from '@/lib/exchanges/binanceEarn';
 import { getBybitEarnProducts } from '@/lib/exchanges/bybitEarn';
 import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
-import { batchGetFundingStats } from '@/lib/fundingAggregator';
+import { batchGetFundingStats, getOpenInterestMap } from '@/lib/fundingAggregator';
 
-// 跳过构建时预渲染，由进程级缓存 + funding 1h缓存 控制刷新
+// 跳过构建时预渲染，由进程级缓存 + funding 缓存 控制刷新
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -25,8 +25,8 @@ export interface CombinedEarnRow {
   earnRates: EarnRate[];
   bestEarnApr: number;
   bestEarnExchange: string;
-  bestEarn3d: number;       // OKX 历史 3 天平均 earn APR
-  bestEarn7d: number;       // OKX 历史 7 天平均 earn APR
+  bestEarn3d: number;
+  bestEarn7d: number;
   funding: FundingRate[];
   bestFunding3d: number;
   bestFunding7d: number;
@@ -36,7 +36,7 @@ export interface CombinedEarnRow {
   combined7d: number;
   coinImage?: string;
   coinName?: string;
-  marketCap: number | null;
+  openInterest: number | null;
 }
 
 /** 带超时的 Promise 包装 */
@@ -47,8 +47,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   ]);
 }
 
-// 进程级缓存（ISR 之外的二级缓存，Lambda 存活期间生效）
-const CACHE_TTL_MS = 120 * 1000; // 120s（含资金费率历史，变化慢）
+const CACHE_TTL_MS = 120 * 1000;
 let cachedEarn: { data: CombinedEarnRow[]; timestamp: number } | null = null;
 
 export async function GET() {
@@ -60,7 +59,6 @@ export async function GET() {
       );
     }
 
-    // 并行获取三个交易所 earn 产品（带超时保护，单个交易所超时不阻塞整体）
     const [binanceProducts, bybitProducts, okxProducts] = await Promise.all([
       withTimeout(getBinanceEarnProducts(), 25000, []),
       withTimeout(getBybitEarnProducts(), 25000, []),
@@ -69,11 +67,8 @@ export async function GET() {
 
     console.log(`[earn] Binance: ${binanceProducts.length}, Bybit: ${bybitProducts.length}, OKX: ${okxProducts.length}`);
 
-    // 按 asset 聚合 earn rates（同交易所去重，取最高 APR）
-    // 过滤掉衍生资产（如 BETH 是 Binance 的质押 ETH，ETH 已覆盖）
     const EXCLUDED_ASSETS = new Set([
       'BETH',
-      // 稳定币
       'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'FDUSD', 'USDP', 'USDD',
       'PYUSD', 'GUSD', 'FRAX', 'LUSD', 'SUSD', 'CUSD', 'EURC', 'EURI',
       'AEUR', 'UST', 'USTC', 'USDE', 'USDJ', 'DOLA', 'GHO', 'CRVUSD',
@@ -95,19 +90,18 @@ export async function GET() {
     for (const p of okxProducts) addEarn(p.asset, 'OKX', p.apr);
 
     const allAssets = Array.from(assetMap.keys());
-
-    // 并行获取：资金费率历史 + 市值数据（带超时保护）
     const symbols = allAssets.map(a => a + 'USDT');
-    const [fundingMap, marketDataMap] = await Promise.all([
+
+    // 并行获取：资金费率 + OI + 市值数据（coinImage/coinName）
+    const [fundingMap, oiMap, marketDataMap] = await Promise.all([
       withTimeout(batchGetFundingStats(allAssets), 55000, new Map()),
+      withTimeout(getOpenInterestMap(allAssets), 55000, new Map()),
       withTimeout(getBatchMarketDataForSymbols(symbols), 15000, new Map()),
     ]);
 
-    // 构建 combined 行
     const rows: CombinedEarnRow[] = [];
 
     for (const [asset, exchMap] of assetMap.entries()) {
-      // 转换为 EarnRate[]，按 APR 降序
       const earnRates: EarnRate[] = Array.from(exchMap.entries())
         .map(([exchange, apr]) => ({ exchange, apr }))
         .sort((a, b) => b.apr - a.apr);
@@ -115,7 +109,6 @@ export async function GET() {
       const bestEarnApr = earnRates[0]?.apr || 0;
       const bestEarnExchange = earnRates[0]?.exchange || '';
 
-      // 资金费率（负值也保留，只过滤 0 即"无合约"的情况）
       const fs = fundingMap.get(asset);
       const funding: FundingRate[] = [];
       if (fs) {
@@ -127,7 +120,6 @@ export async function GET() {
         }
       }
 
-      // 最优 funding（负值也参与选择，选最高的；无数据时为 0）
       let bestFunding3d = 0, bestFunding7d = 0;
       let bestFundingExchange3d = '', bestFundingExchange7d = '';
       if (funding.length > 0) {
@@ -147,11 +139,9 @@ export async function GET() {
         }
       }
 
-      // 活期利率：统一用当前时点 APR（各交易所均无公开历史接口）
       const bestEarn3d = bestEarnApr;
       const bestEarn7d = bestEarnApr;
 
-      // 市值
       const md = marketDataMap.get(asset + 'USDT');
 
       rows.push({
@@ -170,18 +160,17 @@ export async function GET() {
         combined7d: bestEarn7d + bestFunding7d,
         coinImage: md?.image,
         coinName: md?.name,
-        marketCap: md?.marketCap ?? null,
+        openInterest: oiMap.get(asset) ?? null,
       });
     }
 
-    // 如果超过 5% 的币种缺少 funding 数据（可能被限流），不缓存以便下次请求补全
     const withFunding = rows.filter(r => r.funding.length > 0).length;
     const fundingRatio = rows.length > 0 ? withFunding / rows.length : 1;
     if (fundingRatio > 0.80) {
       cachedEarn = { data: rows, timestamp: now };
       console.log('[earn] cached (' + withFunding + '/' + rows.length + ' have funding)');
     } else {
-      console.log('[earn] NOT caching (' + withFunding + '/' + rows.length + ' have funding, below 95% threshold)');
+      console.log('[earn] NOT caching (' + withFunding + '/' + rows.length + ' have funding)');
     }
 
     return NextResponse.json({

@@ -29,10 +29,10 @@ export interface CombinedEarnRow {
   combined7d: number;
   coinImage?: string;
   coinName?: string;
-  marketCap: number | null;
+  openInterest: number | null;
 }
 
-type SortKey = 'asset' | 'bestEarnApr' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'marketCap' | 'none';
+type SortKey = 'asset' | 'bestEarnApr' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'openInterest' | 'none';
 type SortOrder = 'asc' | 'desc';
 
 interface EarnTableProps {
@@ -154,7 +154,7 @@ export default function EarnTable({ data }: EarnTableProps) {
               <Th id="bestFunding7d" align="right">FUND 7D</Th>
               <Th id="combined3d" align="right">COMBINED 3D</Th>
               <Th id="combined7d" align="right">COMBINED 7D</Th>
-              <Th id="marketCap" align="right" className="pr-6">M-CAP</Th>
+              <Th id="openInterest" align="right" className="pr-6">OI</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-brand-border bg-brand-dark/50">
@@ -247,9 +247,9 @@ export default function EarnTable({ data }: EarnTableProps) {
                         </span>
                       </td>
 
-                      {/* M-CAP */}
+                      {/* OI */}
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary text-right font-mono tracking-tight pr-6">
-                        {formatNumber(item.marketCap, 1)}
+                        {formatNumber(item.openInterest, 1)}
                       </td>
                     </tr>
 
