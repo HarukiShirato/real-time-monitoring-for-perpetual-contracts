@@ -204,24 +204,19 @@ export default function EarnTable({ data }: EarnTableProps) {
                         {item.asset}
                       </td>
 
-                      {/* EARN 3D - 点击展开明细 */}
+                      {/* EARN - 点击展开明细 */}
                       <td
                         className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight cursor-pointer"
                         onClick={() => setExpandedAsset(isExpanded ? null : item.asset)}
                       >
                         <div className="flex items-center justify-end gap-1.5 hover:bg-brand-surfaceHighlight rounded px-1 py-0.5 transition-colors">
-                          <span className="text-brand-success font-semibold">{formatPct(Math.max(item.bestEarn3d, item.stakingApr ?? 0))}</span>
+                          <span className="text-brand-success font-semibold">{formatPct(Math.max(item.bestEarn7d, item.stakingApr ?? 0))}</span>
                           {hasRealEarn && <span className="text-[8px] text-brand-accent opacity-70">REAL</span>}
-                          {(item.stakingApr ?? 0) > item.bestEarn3d && <span className="text-[8px] text-purple-400 opacity-70">SRR</span>}
+                          {(item.stakingApr ?? 0) > item.bestEarn7d && <span className="text-[8px] text-purple-400 opacity-70">SRR</span>}
                           <span className="text-[10px] opacity-50 text-brand-text-muted">{isExpanded ? '\u25B2' : '\u25BC'}</span>
                         </div>
                       </td>
 
-                      {/* EARN 7D */}
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
-                        <span className="text-brand-success font-semibold">{formatPct(Math.max(item.bestEarn7d, item.stakingApr ?? 0))}</span>
-                        {(item.stakingApr ?? 0) > item.bestEarn7d && <span className="text-[8px] text-purple-400 opacity-70 ml-1">SRR</span>}
-                      </td>
 
                       {/* FUND 3D */}
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
@@ -250,7 +245,7 @@ export default function EarnTable({ data }: EarnTableProps) {
                       {/* COMBINED 3D */}
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-mono tracking-tight">
                         <span className={`font-semibold ${pctColor(item.combined3d)}`}>
-                          {item.combined3d !== 0 ? formatPct(item.combined3d) : formatPct(item.bestEarn3d)}
+                          {item.combined3d !== 0 ? formatPct(item.combined3d) : formatPct(item.bestEarn7d)}
                         </span>
                       </td>
 
