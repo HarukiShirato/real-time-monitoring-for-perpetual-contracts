@@ -154,8 +154,7 @@ export default function EarnTable({ data }: EarnTableProps) {
             <tr className="bg-brand-surface">
               <Th id="asset" className="pl-6">COIN</Th>
               <Th id="asset">ASSET</Th>
-              <Th id="bestEarn3d" align="right">EARN 3D</Th>
-              <Th id="bestEarn7d" align="right">EARN 7D</Th>
+              <Th id="bestEarn7d" align="right">EARN</Th>
               <Th id="bestFunding3d" align="right">FUND 3D</Th>
               <Th id="bestFunding7d" align="right">FUND 7D</Th>
               <Th id="combined3d" align="right">COMBINED 3D</Th>
@@ -166,7 +165,7 @@ export default function EarnTable({ data }: EarnTableProps) {
           <tbody className="divide-y divide-brand-border bg-brand-dark/50">
             {sortedData.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-24 text-center">
+                <td colSpan={8} className="px-6 py-24 text-center">
                   <div className="flex flex-col items-center justify-center text-brand-text-muted">
                     <svg className="w-12 h-12 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -271,7 +270,7 @@ export default function EarnTable({ data }: EarnTableProps) {
                     {/* 展开：各交易所 Earn 明细 + Funding 明细 */}
                     {isExpanded && (
                       <tr key={`${item.asset}-detail`} className="bg-brand-surfaceHighlight/10 border-b border-brand-border">
-                        <td colSpan={9} className="px-6 py-4">
+                        <td colSpan={8} className="px-6 py-4">
                           <div className="flex flex-col lg:flex-row gap-6">
                             {/* Earn 明细 */}
                             <div className="flex-1">
