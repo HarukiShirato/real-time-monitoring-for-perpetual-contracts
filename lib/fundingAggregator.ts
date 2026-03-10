@@ -184,6 +184,24 @@ async function getLatestSnapshot(): Promise<RateSnapshot> {
   return snapshot;
 }
 
+
+/* ── 从数据时间戳自动检测结算间隔 ── */
+function detectIntervalHours(rates: SettledRate[]): number {
+  if (rates.length < 2) return 8;
+  // Use median of first few intervals to be robust
+  const intervals: number[] = [];
+  for (let i = 1; i < Math.min(rates.length, 6); i++) {
+    intervals.push((rates[i].time - rates[i - 1].time) / 3600000);
+  }
+  intervals.sort((a, b) => a - b);
+  const median = intervals[Math.floor(intervals.length / 2)];
+  // Round to nearest standard interval: 1, 2, 4, 8
+  if (median <= 1.5) return 1;
+  if (median <= 3) return 2;
+  if (median <= 6) return 4;
+  return 8;
+}
+
 /* ── 从结算数据计算年化 ── */
 function calcAprFromSettled(rates: SettledRate[], days: number, intervalHours: number): number {
   if (rates.length === 0) return 0;
@@ -216,8 +234,9 @@ export async function batchGetFundingStats(assets: string[]): Promise<Map<string
     let binance3d = 0, binance7d = 0;
     const bnHist = histData?.binance?.[bnSymbol];
     if (bnHist && bnHist.length > 0) {
-      binance3d = calcAprFromSettled(bnHist, 3, 8);
-      binance7d = calcAprFromSettled(bnHist, 7, 8);
+      const bnInterval = detectIntervalHours(bnHist);
+      binance3d = calcAprFromSettled(bnHist, 3, bnInterval);
+      binance7d = calcAprFromSettled(bnHist, 7, bnInterval);
     }
 
     // Bybit: 从文件读取实际结算历史
