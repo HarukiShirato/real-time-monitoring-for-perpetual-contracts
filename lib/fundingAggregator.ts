@@ -87,8 +87,8 @@ function calcAvgApr(records: { time: number; rate: number }[], days: number): nu
  * @param assets - 基础币种列表，如 ['BTC', 'ETH', 'SOL']
  * @returns Map<asset, FundingStats>
  */
-// Binance 部分小币种合约 ticker 带 1000 前缀（如 1000PEPEUSDT, 1000BONKUSDT）
-const BINANCE_1000X_ASSETS = new Set([
+// Binance/Bybit 部分小币种合约 ticker 带 1000 前缀（如 1000PEPEUSDT, 1000BONKUSDT）
+const EXCHANGE_1000X_ASSETS = new Set([
   'PEPE', 'BONK', 'SHIB', 'FLOKI', 'LUNC', 'SATS', 'RATS', 'CAT',
   'CHEEMS', 'MOGCOIN', 'WHY', 'X', 'APU',
 ]);
@@ -96,11 +96,11 @@ const BINANCE_1000X_ASSETS = new Set([
 export async function batchGetFundingStats(assets: string[]): Promise<Map<string, FundingStats>> {
   const result = new Map<string, FundingStats>();
 
-  // 构建 symbol 列表，处理 Binance 的 1000x 命名
+  // 构建 symbol 列表，处理 Binance/Bybit 的 1000x 命名
   const entries = assets.map(a => {
     const upper = a.toUpperCase();
-    const binanceSymbol = BINANCE_1000X_ASSETS.has(upper) ? `1000${upper}USDT` : `${upper}USDT`;
-    const bybitSymbol = `${upper}USDT`;
+    const binanceSymbol = EXCHANGE_1000X_ASSETS.has(upper) ? `1000${upper}USDT` : `${upper}USDT`;
+    const bybitSymbol = EXCHANGE_1000X_ASSETS.has(upper) ? `1000${upper}USDT` : `${upper}USDT`;
     return { asset: upper, binanceSymbol, bybitSymbol };
   });
 
