@@ -87,22 +87,34 @@ function calcAvgApr(records: { time: number; rate: number }[], days: number): nu
  * @param assets - 基础币种列表，如 ['BTC', 'ETH', 'SOL']
  * @returns Map<asset, FundingStats>
  */
+// Binance 部分小币种合约 ticker 带 1000 前缀（如 1000PEPEUSDT, 1000BONKUSDT）
+const BINANCE_1000X_ASSETS = new Set([
+  'PEPE', 'BONK', 'SHIB', 'FLOKI', 'LUNC', 'SATS', 'RATS', 'CAT',
+  'CHEEMS', 'MOGCOIN', 'WHY', 'X', 'APU',
+]);
+
 export async function batchGetFundingStats(assets: string[]): Promise<Map<string, FundingStats>> {
   const result = new Map<string, FundingStats>();
-  const symbols = assets.map(a => a.toUpperCase() + 'USDT');
+
+  // 构建 symbol 列表，处理 Binance 的 1000x 命名
+  const entries = assets.map(a => {
+    const upper = a.toUpperCase();
+    const binanceSymbol = BINANCE_1000X_ASSETS.has(upper) ? `1000${upper}USDT` : `${upper}USDT`;
+    const bybitSymbol = `${upper}USDT`;
+    return { asset: upper, binanceSymbol, bybitSymbol };
+  });
 
   // 批量请求，每批 10 个，避免限流
   const batchSize = 10;
   const delay = 200;
 
-  for (let i = 0; i < symbols.length; i += batchSize) {
-    const batch = symbols.slice(i, i + batchSize);
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const batch = entries.slice(i, i + batchSize);
 
-    const promises = batch.map(async (symbol) => {
-      const asset = symbol.replace('USDT', '');
+    const promises = batch.map(async ({ asset, binanceSymbol, bybitSymbol }) => {
       const [binanceHistory, bybitHistory] = await Promise.all([
-        getBinanceFundingHistory(symbol),
-        getBybitFundingHistory(symbol),
+        getBinanceFundingHistory(binanceSymbol),
+        getBybitFundingHistory(bybitSymbol),
       ]);
 
       const stats: FundingStats = {
@@ -120,7 +132,7 @@ export async function batchGetFundingStats(assets: string[]): Promise<Map<string
       result.set(asset, stats);
     });
 
-    if (i + batchSize < symbols.length) {
+    if (i + batchSize < entries.length) {
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

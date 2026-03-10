@@ -71,7 +71,14 @@ export async function GET() {
 
     // 按 asset 聚合 earn rates（同交易所去重，取最高 APR）
     // 过滤掉衍生资产（如 BETH 是 Binance 的质押 ETH，ETH 已覆盖）
-    const EXCLUDED_ASSETS = new Set(['BETH']);
+    const EXCLUDED_ASSETS = new Set([
+      'BETH',
+      // 稳定币
+      'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'FDUSD', 'USDP', 'USDD',
+      'PYUSD', 'GUSD', 'FRAX', 'LUSD', 'SUSD', 'CUSD', 'EURC', 'EURI',
+      'AEUR', 'UST', 'USTC', 'USDE', 'USDJ', 'DOLA', 'GHO', 'CRVUSD',
+      'MKUSD', 'USD0',
+    ]);
     const assetMap = new Map<string, Map<string, number>>();
 
     const addEarn = (asset: string, exchange: string, apr: number) => {
