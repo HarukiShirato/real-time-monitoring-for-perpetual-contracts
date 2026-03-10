@@ -57,6 +57,24 @@ async function fetchHypeStaking() {
   return null;
 }
 
+async function fetchLitStaking() {
+  try {
+    const res = await axios.get("https://mainnet.zklighter.elliot.ai/api/v1/account", {
+      params: { by: "index", value: "281474976624800" },
+      timeout: 10000,
+    });
+    const balance = parseFloat(res.data?.accounts?.[0]?.assets?.[0]?.balance || "0");
+    if (balance > 0) {
+      const apr = 1e7 / balance; // 10M annual reward / totalStaked
+      console.log(`[staking] LIT staking APR: ${(apr * 100).toFixed(2)}% (staked: ${(balance / 1e6).toFixed(2)}M LIT)`);
+      return { asset: "LIT", apr, source: "lighter-staking", updatedAt: Date.now() };
+    }
+  } catch (e) {
+    console.error(`[staking] LIT fetch failed: ${e.message}`);
+  }
+  return null;
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function fetchBinanceOI() {
@@ -103,7 +121,7 @@ async function collect() {
     console.error(`[staking] Failed to read existing data: ${e.message}`);
   }
 
-  const results = await Promise.all([fetchSkyStaking(), fetchHypeStaking()]);
+  const results = await Promise.all([fetchSkyStaking(), fetchHypeStaking(), fetchLitStaking()]);
   
   for (const r of results) {
     if (r) {
