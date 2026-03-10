@@ -42,7 +42,6 @@ export interface CombinedEarnRow {
   coinName?: string;
   binanceOI: number | null;
   bybitOI: number | null;
-  hyperliquidOI: number | null;
   marketCap: number | null;
   stakingApr: number | null;
 }
@@ -140,9 +139,6 @@ export async function GET() {
         if (fs.bybit3d !== 0 || fs.bybit7d !== 0) {
           funding.push({ exchange: 'Bybit', apr3d: fs.bybit3d, apr7d: fs.bybit7d });
         }
-        if (fs.hyperliquid3d !== 0 || fs.hyperliquid7d !== 0) {
-          funding.push({ exchange: 'Hyperliquid', apr3d: fs.hyperliquid3d, apr7d: fs.hyperliquid7d });
-        }
       }
 
       let bestFunding3d = 0, bestFunding7d = 0;
@@ -195,7 +191,6 @@ export async function GET() {
         coinName: md?.name || undefined,
         binanceOI: oiMap.get(asset)?.binance ?? null,
         bybitOI: oiMap.get(asset)?.bybit ?? null,
-        hyperliquidOI: oiMap.get(asset)?.hyperliquid ?? null,
         stakingApr: stakingMap.get(asset) ?? null,
         marketCap: md?.mcap ?? null,
       });
