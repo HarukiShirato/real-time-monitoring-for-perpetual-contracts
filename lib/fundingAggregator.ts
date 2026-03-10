@@ -139,9 +139,16 @@ async function fetchHyperliquidData(): Promise<{ rates: Map<string, number>; oi:
     const meta = res.data[0];
     const ctxs = res.data[1];
     for (let i = 0; i < meta.universe.length; i++) {
-      const coin = meta.universe[i].name;
+      const m = meta.universe[i];
+      if (m.isDelisted || m.maxLeverage <= 3) continue; // Skip HIP-3
+      const coin = m.name;
       const ctx = ctxs[i];
-      const symbol = coin + 'USDT';
+      // Handle k-prefix: kPEPE -> PEPEUSDT
+      let base = coin;
+      if (coin.startsWith('k') && coin.length > 1 && coin[1] === coin[1].toUpperCase()) {
+        base = coin.substring(1);
+      }
+      const symbol = base + 'USDT';
       rates.set(symbol, parseFloat(ctx.funding || '0'));
       const oiVal = parseFloat(ctx.openInterest || '0');
       const markPx = parseFloat(ctx.markPx || '0');
