@@ -32,9 +32,10 @@ export interface CombinedEarnRow {
   coinImage?: string;
   coinName?: string;
   openInterest: number | null;
+  marketCap: number | null;
 }
 
-type SortKey = 'asset' | 'bestEarn3d' | 'bestEarn7d' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'openInterest' | 'none';
+type SortKey = 'asset' | 'bestEarn3d' | 'bestEarn7d' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'marketCap' | 'none';
 type SortOrder = 'asc' | 'desc';
 
 interface EarnTableProps {
@@ -157,7 +158,7 @@ export default function EarnTable({ data }: EarnTableProps) {
               <Th id="bestFunding7d" align="right">FUND 7D</Th>
               <Th id="combined3d" align="right">COMBINED 3D</Th>
               <Th id="combined7d" align="right">COMBINED 7D</Th>
-              <Th id="openInterest" align="right" className="pr-6">OI</Th>
+              <Th id="marketCap" align="right" className="pr-6">M-Cap</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-brand-border bg-brand-dark/50">
@@ -257,9 +258,9 @@ export default function EarnTable({ data }: EarnTableProps) {
                         </span>
                       </td>
 
-                      {/* OI */}
+                      {/* M-Cap */}
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-brand-text-secondary text-right font-mono tracking-tight pr-6">
-                        {formatNumber(item.openInterest, 1)}
+                        {formatNumber(item.marketCap, 1)}
                       </td>
                     </tr>
 
@@ -299,7 +300,12 @@ export default function EarnTable({ data }: EarnTableProps) {
                             {/* Funding 明细 */}
                             {item.funding.length > 0 && (
                               <div className="flex-1">
-                                <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-2">Funding Rates (Annualized)</div>
+                                <div className="flex items-center gap-4 mb-2">
+                                  <span className="text-xs uppercase tracking-wider text-brand-text-secondary">Funding Rates (Annualized)</span>
+                                  {item.openInterest != null && item.openInterest > 0 && (
+                                    <span className="text-xs text-brand-text-muted font-mono">OI: {formatNumber(item.openInterest, 1)}</span>
+                                  )}
+                                </div>
                                 <div className="space-y-2">
                                   {item.funding.map((fr) => (
                                     <div key={fr.exchange} className="flex items-center justify-between gap-3 text-sm">

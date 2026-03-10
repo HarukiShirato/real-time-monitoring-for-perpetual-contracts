@@ -1,8 +1,13 @@
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 
 /**
- * 使用批量 API 获取 Binance/Bybit 资金费率 + OI（仅 2 次 API 调用）
- * 在内存中逐步积累历史数据，计算 3d/7d 平均年化
+ * 资金费率聚合器 v5
+ * - 从 data/funding-history.json 读取后台采集器持续记录的费率数据
+ * - Binance + Bybit 都从文件读取实际结算历史
+ * - 正确处理 Bybit 不同结算间隔 (1h/4h/8h)
+ * - 仍保留 bulk snapshot 用于 OI 数据
  */
 
 export interface FundingStats {
@@ -14,50 +19,77 @@ export interface FundingStats {
 
 const BINANCE_FAPI = 'https://fapi.binance.com';
 const BYBIT_API = 'https://api.bybit.com';
+const DATA_FILE = path.join(process.cwd(), 'data', 'funding-history.json');
 
+/* ── Types ── */
+interface SettledRate { time: number; rate: number; }
+
+interface FundingHistoryData {
+  binance: Record<string, SettledRate[]>;
+  bybit: Record<string, { intervalHours: number; rates: SettledRate[] }>;
+  updatedAt: number;
+}
+
+/* ── Snapshot for OI ── */
 const SNAPSHOT_CACHE_TTL = 5 * 60 * 1000;
-const HISTORY_MAX_AGE = 8 * 24 * 60 * 60 * 1000;
-
 interface RateSnapshot {
   binance: Map<string, number>;
   bybit: Map<string, number>;
-  // OI (USDT 计价)
   binanceOI: Map<string, number>;
   bybitOI: Map<string, number>;
   timestamp: number;
 }
 
-interface HistoryEntry { time: number; rate: number; }
+/* ── File data cache ── */
+const FILE_CACHE_TTL = 60 * 1000; // 每分钟重新读取文件
 
-interface FundingStore {
+interface Store {
   snapshot: RateSnapshot | null;
-  history: Map<string, HistoryEntry[]>;
+  fileData: FundingHistoryData | null;
+  fileDataTs: number;
 }
 
-function getStore(): FundingStore {
+function getStore(): Store {
   const g = globalThis as any;
-  if (!g.__fundingStore) {
-    g.__fundingStore = { snapshot: null, history: new Map() } as FundingStore;
+  if (!g.__fundingStore5) {
+    g.__fundingStore5 = { snapshot: null, fileData: null, fileDataTs: 0 } as Store;
   }
-  return g.__fundingStore;
+  return g.__fundingStore5;
 }
 
-/** Binance premiumIndex: 全部合约的费率 + markPrice（用于 OI 换算） */
+/* ── 读取采集器数据文件 ── */
+function getFundingHistory(): FundingHistoryData | null {
+  const store = getStore();
+  if (store.fileData && Date.now() - store.fileDataTs < FILE_CACHE_TTL) {
+    return store.fileData;
+  }
+  try {
+    if (!fs.existsSync(DATA_FILE)) {
+      console.log('[funding] data file not found:', DATA_FILE);
+      return null;
+    }
+    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+    const data = JSON.parse(raw) as FundingHistoryData;
+    store.fileData = data;
+    store.fileDataTs = Date.now();
+    return data;
+  } catch (e: any) {
+    console.error('[funding] Failed to read data file:', e.message);
+    return null;
+  }
+}
+
+/* ── Bulk snapshot: Binance ── */
 async function fetchBinanceData(): Promise<{ rates: Map<string, number>; oi: Map<string, number> }> {
   const rates = new Map<string, number>();
   const oi = new Map<string, number>();
   try {
-    // premiumIndex 获取费率和 markPrice
     const res = await axios.get(`${BINANCE_FAPI}/fapi/v1/premiumIndex`, { timeout: 15000 });
-    const markPrices = new Map<string, number>();
     if (Array.isArray(res.data)) {
       for (const item of res.data) {
         rates.set(item.symbol, parseFloat(item.lastFundingRate || '0'));
-        markPrices.set(item.symbol, parseFloat(item.markPrice || '0'));
       }
     }
-    // ticker/24hr 获取 volume (base asset)，结合 markPrice 估算 OI 替代方案
-    // 但实际上 Binance 没有批量 OI 接口，所以我们只用 Bybit OI
     console.log(`[funding] Binance premiumIndex: ${rates.size} symbols`);
   } catch (e: any) {
     console.error(`[funding] Binance premiumIndex failed: ${e.message}`);
@@ -65,7 +97,7 @@ async function fetchBinanceData(): Promise<{ rates: Map<string, number>; oi: Map
   return { rates, oi };
 }
 
-/** Bybit tickers: 全部合约的费率 + OI（USDT 计价） */
+/* ── Bulk snapshot: Bybit ── */
 async function fetchBybitData(): Promise<{ rates: Map<string, number>; oi: Map<string, number> }> {
   const rates = new Map<string, number>();
   const oi = new Map<string, number>();
@@ -94,12 +126,10 @@ async function getLatestSnapshot(): Promise<RateSnapshot> {
   if (store.snapshot && Date.now() - store.snapshot.timestamp < SNAPSHOT_CACHE_TTL) {
     return store.snapshot;
   }
-
   const [binanceData, bybitData] = await Promise.all([
     fetchBinanceData(),
     fetchBybitData(),
   ]);
-
   const snapshot: RateSnapshot = {
     binance: binanceData.rates,
     bybit: bybitData.rates,
@@ -108,34 +138,18 @@ async function getLatestSnapshot(): Promise<RateSnapshot> {
     timestamp: Date.now(),
   };
   store.snapshot = snapshot;
-
-  const now = Date.now();
-  for (const [symbol, rate] of binanceData.rates) appendHistory(`bn:${symbol}`, now, rate);
-  for (const [symbol, rate] of bybitData.rates) appendHistory(`by:${symbol}`, now, rate);
-
   return snapshot;
 }
 
-function appendHistory(key: string, time: number, rate: number): void {
-  const store = getStore();
-  let arr = store.history.get(key);
-  if (!arr) { arr = []; store.history.set(key, arr); }
-  const lastTime = arr.length > 0 ? arr[arr.length - 1].time : 0;
-  if (time - lastTime < 4 * 60 * 1000) return;
-  arr.push({ time, rate });
-  const cutoff = Date.now() - HISTORY_MAX_AGE;
-  while (arr.length > 0 && arr[0].time < cutoff) arr.shift();
-}
-
-function calcAvgAprFromHistory(key: string, days: number): number {
-  const store = getStore();
-  const arr = store.history.get(key);
-  if (!arr || arr.length === 0) return 0;
+/* ── 从结算数据计算年化 ── */
+function calcAprFromSettled(rates: SettledRate[], days: number, intervalHours: number): number {
+  if (rates.length === 0) return 0;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const recent = arr.filter(r => r.time >= cutoff);
+  const recent = rates.filter(r => r.time >= cutoff);
   if (recent.length === 0) return 0;
   const avgRate = recent.reduce((sum, r) => sum + r.rate, 0) / recent.length;
-  return avgRate * 3 * 365; // 8h 结算 → 每天 3 次
+  const settlementsPerDay = 24 / intervalHours;
+  return avgRate * settlementsPerDay * 365;
 }
 
 const EXCHANGE_1000X_ASSETS = new Set([
@@ -143,10 +157,10 @@ const EXCHANGE_1000X_ASSETS = new Set([
   'CHEEMS', 'MOGCOIN', 'WHY', 'X', 'APU',
 ]);
 
-/** 批量获取资金费率（2 次 API 调用） */
+/** 批量获取资金费率 */
 export async function batchGetFundingStats(assets: string[]): Promise<Map<string, FundingStats>> {
   const snapshot = await getLatestSnapshot();
-  const store = getStore();
+  const histData = getFundingHistory();
   const result = new Map<string, FundingStats>();
 
   for (const a of assets) {
@@ -154,41 +168,39 @@ export async function batchGetFundingStats(assets: string[]): Promise<Map<string
     const is1000x = EXCHANGE_1000X_ASSETS.has(upper);
     const bnSymbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
     const bySymbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
-    const bnKey = `bn:${bnSymbol}`;
-    const byKey = `by:${bySymbol}`;
 
-    const bnHistory = store.history.get(bnKey);
-    const byHistory = store.history.get(byKey);
-
-    let binance3d: number, binance7d: number, bybit3d: number, bybit7d: number;
-
-    if (bnHistory && bnHistory.length > 1) {
-      binance3d = calcAvgAprFromHistory(bnKey, 3);
-      binance7d = calcAvgAprFromHistory(bnKey, 7);
-    } else {
-      const apr = (snapshot.binance.get(bnSymbol) ?? 0) * 3 * 365;
-      binance3d = apr; binance7d = apr;
+    // Binance: 从文件读取实际结算历史
+    let binance3d = 0, binance7d = 0;
+    const bnHist = histData?.binance?.[bnSymbol];
+    if (bnHist && bnHist.length > 0) {
+      binance3d = calcAprFromSettled(bnHist, 3, 8);
+      binance7d = calcAprFromSettled(bnHist, 7, 8);
     }
 
-    if (byHistory && byHistory.length > 1) {
-      bybit3d = calcAvgAprFromHistory(byKey, 3);
-      bybit7d = calcAvgAprFromHistory(byKey, 7);
-    } else {
-      const apr = (snapshot.bybit.get(bySymbol) ?? 0) * 3 * 365;
-      bybit3d = apr; bybit7d = apr;
+    // Bybit: 从文件读取实际结算历史
+    let bybit3d = 0, bybit7d = 0;
+    const byData = histData?.bybit?.[bySymbol];
+    if (byData && byData.rates && byData.rates.length > 0) {
+      const intervalH = byData.intervalHours || 8;
+      bybit3d = calcAprFromSettled(byData.rates, 3, intervalH);
+      bybit7d = calcAprFromSettled(byData.rates, 7, intervalH);
     }
 
     result.set(upper, { binance3d, binance7d, bybit3d, bybit7d });
   }
 
-  const withData = [...result.values()].filter(s => s.binance3d !== 0 || s.bybit3d !== 0).length;
-  console.log(`[funding] ${withData}/${result.size} have data`);
+  const withData = [...result.values()].filter(s =>
+    s.binance3d !== 0 || s.binance7d !== 0 || s.bybit3d !== 0 || s.bybit7d !== 0
+  ).length;
+  const bnSymCount = histData ? Object.keys(histData.binance || {}).length : 0;
+  const bySymCount = histData ? Object.keys(histData.bybit || {}).length : 0;
+  const age = histData ? Math.round((Date.now() - (histData.updatedAt || 0)) / 1000) : -1;
+  console.log(`[funding] ${withData}/${result.size} have data (file: bn=${bnSymCount} by=${bySymCount}, age=${age}s)`);
   return result;
 }
 
 /**
  * 获取 OI 数据（USDT 计价）
- * 使用 Bybit openInterestValue（已在 tickers 中包含）
  */
 export async function getOpenInterestMap(assets: string[]): Promise<Map<string, number>> {
   const snapshot = await getLatestSnapshot();
@@ -198,13 +210,8 @@ export async function getOpenInterestMap(assets: string[]): Promise<Map<string, 
     const upper = a.toUpperCase();
     const is1000x = EXCHANGE_1000X_ASSETS.has(upper);
     const symbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
-
-    // 合并 Bybit + Binance OI（取较大值，因为两个交易所都有流动性）
     const bybitOI = snapshot.bybitOI.get(symbol) ?? 0;
-    // Binance OI 暂时不可用（无批量接口），后续可扩展
-    const totalOI = bybitOI;
-
-    if (totalOI > 0) result.set(upper, totalOI);
+    if (bybitOI > 0) result.set(upper, bybitOI);
   }
 
   return result;

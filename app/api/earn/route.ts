@@ -40,6 +40,7 @@ export interface CombinedEarnRow {
   coinImage?: string;
   coinName?: string;
   openInterest: number | null;
+  marketCap: number | null;
 }
 
 /** 带超时的 Promise 包装 */
@@ -183,6 +184,7 @@ export async function GET() {
         coinImage: md?.image,
         coinName: md?.name,
         openInterest: oiMap.get(asset) ?? null,
+        marketCap: md?.marketCap ?? null,
       });
     }
 
