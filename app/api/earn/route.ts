@@ -5,8 +5,8 @@ import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 import { getBatchMarketDataForSymbols } from '@/lib/marketData';
 import { batchGetFundingStats } from '@/lib/fundingAggregator';
 
-// ISR: 每 300 秒（5 分钟）后台自动重新验证，用户访问秒返回缓存
-export const revalidate = 300;
+// 跳过构建时预渲染，由进程级缓存 + funding 1h缓存 控制刷新
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export interface EarnRate {
@@ -99,7 +99,7 @@ export async function GET() {
     // 并行获取：资金费率历史 + 市值数据（带超时保护）
     const symbols = allAssets.map(a => a + 'USDT');
     const [fundingMap, marketDataMap] = await Promise.all([
-      withTimeout(batchGetFundingStats(allAssets), 30000, new Map()),
+      withTimeout(batchGetFundingStats(allAssets), 55000, new Map()),
       withTimeout(getBatchMarketDataForSymbols(symbols), 15000, new Map()),
     ]);
 
@@ -174,7 +174,15 @@ export async function GET() {
       });
     }
 
-    cachedEarn = { data: rows, timestamp: now };
+    // 如果超过 5% 的币种缺少 funding 数据（可能被限流），不缓存以便下次请求补全
+    const withFunding = rows.filter(r => r.funding.length > 0).length;
+    const fundingRatio = rows.length > 0 ? withFunding / rows.length : 1;
+    if (fundingRatio > 0.80) {
+      cachedEarn = { data: rows, timestamp: now };
+      console.log('[earn] cached (' + withFunding + '/' + rows.length + ' have funding)');
+    } else {
+      console.log('[earn] NOT caching (' + withFunding + '/' + rows.length + ' have funding, below 95% threshold)');
+    }
 
     return NextResponse.json({
       success: true,

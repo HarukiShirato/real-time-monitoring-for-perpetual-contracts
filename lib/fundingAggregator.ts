@@ -1,11 +1,15 @@
 import axios from 'axios';
 
 /**
- * 批量获取 Binance/Bybit 历史资金费率，计算 3d/7d 平均年化
+ * 使用批量 API 获取 Binance/Bybit 资金费率（仅 2 次 API 调用）
+ * 在内存中逐步积累历史数据，计算 3d/7d 平均年化
+ *
+ * Binance: GET /fapi/v1/premiumIndex (返回全部合约)
+ * Bybit:   GET /v5/market/tickers?category=linear (返回全部合约)
  */
 
 export interface FundingStats {
-  binance3d: number;  // 年化 APR（小数）
+  binance3d: number;
   binance7d: number;
   bybit3d: number;
   bybit7d: number;
@@ -14,128 +18,230 @@ export interface FundingStats {
 const BINANCE_FAPI = 'https://fapi.binance.com';
 const BYBIT_API = 'https://api.bybit.com';
 
+// ── 数据缓存（globalThis 跨模块持久化） ──
+const SNAPSHOT_CACHE_TTL = 5 * 60 * 1000; // 快照缓存 5 分钟（premiumIndex 调用很轻量）
+const HISTORY_MAX_AGE = 8 * 24 * 60 * 60 * 1000; // 保留 8 天历史
+
+interface RateSnapshot {
+  binance: Map<string, number>;  // symbol → lastFundingRate
+  bybit: Map<string, number>;
+  timestamp: number;
+}
+
+interface HistoryEntry {
+  time: number;
+  rate: number;
+}
+
+interface FundingStore {
+  snapshot: RateSnapshot | null;
+  // 累积历史：key = "bn:BTCUSDT" or "by:BTCUSDT"
+  history: Map<string, HistoryEntry[]>;
+}
+
+function getStore(): FundingStore {
+  const g = globalThis as any;
+  if (!g.__fundingStore) {
+    g.__fundingStore = {
+      snapshot: null,
+      history: new Map(),
+    } as FundingStore;
+  }
+  return g.__fundingStore;
+}
+
 /**
- * 获取 Binance 某个 symbol 的历史资金费率
+ * 从 Binance premiumIndex 获取全部合约的当前资金费率（1 次请求）
  */
-async function getBinanceFundingHistory(symbol: string): Promise<{ time: number; rate: number }[]> {
+async function fetchBinanceRates(): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
   try {
-    const response = await axios.get(`${BINANCE_FAPI}/fapi/v1/fundingRate`, {
-      params: { symbol, limit: 100 },
-      timeout: 10000,
+    const res = await axios.get(`${BINANCE_FAPI}/fapi/v1/premiumIndex`, { timeout: 15000 });
+    if (Array.isArray(res.data)) {
+      for (const item of res.data) {
+        const rate = parseFloat(item.lastFundingRate || '0');
+        map.set(item.symbol, rate);
+      }
+    }
+    console.log(`[funding] Binance premiumIndex: ${map.size} symbols`);
+  } catch (e: any) {
+    console.error(`[funding] Binance premiumIndex failed: ${e.message}`);
+  }
+  return map;
+}
+
+/**
+ * 从 Bybit tickers 获取全部合约的当前资金费率（1 次请求）
+ */
+async function fetchBybitRates(): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  try {
+    const res = await axios.get(`${BYBIT_API}/v5/market/tickers`, {
+      params: { category: 'linear' },
+      timeout: 15000,
     });
-    if (!Array.isArray(response.data)) return [];
-    return response.data.map((item: any) => ({
-      time: Number(item.fundingTime),
-      rate: parseFloat(item.fundingRate || '0'),
-    }));
-  } catch {
-    return [];
+    const list = res.data?.result?.list;
+    if (Array.isArray(list)) {
+      for (const item of list) {
+        const rate = parseFloat(item.fundingRate || '0');
+        map.set(item.symbol, rate);
+      }
+    }
+    console.log(`[funding] Bybit tickers: ${map.size} symbols`);
+  } catch (e: any) {
+    console.error(`[funding] Bybit tickers failed: ${e.message}`);
+  }
+  return map;
+}
+
+/**
+ * 获取最新快照（带 5 分钟缓存）
+ */
+async function getLatestSnapshot(): Promise<RateSnapshot> {
+  const store = getStore();
+
+  if (store.snapshot && Date.now() - store.snapshot.timestamp < SNAPSHOT_CACHE_TTL) {
+    return store.snapshot;
+  }
+
+  // 并行获取两个交易所（共 2 次 API 调用）
+  const [binance, bybit] = await Promise.all([
+    fetchBinanceRates(),
+    fetchBybitRates(),
+  ]);
+
+  const snapshot: RateSnapshot = { binance, bybit, timestamp: Date.now() };
+  store.snapshot = snapshot;
+
+  // 将最新费率写入历史
+  const now = Date.now();
+  for (const [symbol, rate] of binance) {
+    appendHistory(`bn:${symbol}`, now, rate);
+  }
+  for (const [symbol, rate] of bybit) {
+    appendHistory(`by:${symbol}`, now, rate);
+  }
+
+  return snapshot;
+}
+
+/**
+ * 追加历史数据点（去重 + 清理过期数据）
+ */
+function appendHistory(key: string, time: number, rate: number): void {
+  const store = getStore();
+  let arr = store.history.get(key);
+  if (!arr) {
+    arr = [];
+    store.history.set(key, arr);
+  }
+
+  // 去重：同一个 5 分钟窗口内不重复添加
+  const lastTime = arr.length > 0 ? arr[arr.length - 1].time : 0;
+  if (time - lastTime < 4 * 60 * 1000) return; // 4 分钟内不重复
+
+  arr.push({ time, rate });
+
+  // 清理超过 8 天的旧数据
+  const cutoff = Date.now() - HISTORY_MAX_AGE;
+  while (arr.length > 0 && arr[0].time < cutoff) {
+    arr.shift();
   }
 }
 
 /**
- * 获取 Bybit 某个 symbol 的历史资金费率
+ * 从累积历史中计算 N 天平均年化 APR
+ * 如果历史不足，则使用已有数据（最少 1 个点）
  */
-async function getBybitFundingHistory(symbol: string): Promise<{ time: number; rate: number }[]> {
-  try {
-    const response = await axios.get(`${BYBIT_API}/v5/market/funding/history`, {
-      params: { category: 'linear', symbol, limit: 100 },
-      timeout: 10000,
-    });
-    const list = response.data?.result?.list;
-    if (!Array.isArray(list)) return [];
-    // Bybit 返回最新在前，需要反转
-    return list.reverse().map((item: any) => ({
-      time: Number(item.fundingRateTimestamp),
-      rate: parseFloat(item.fundingRate || '0'),
-    }));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * 从资金费率记录中计算 N 天内的平均年化 APR
- */
-function calcAvgApr(records: { time: number; rate: number }[], days: number): number {
-  if (records.length === 0) return 0;
+function calcAvgAprFromHistory(key: string, days: number): number {
+  const store = getStore();
+  const arr = store.history.get(key);
+  if (!arr || arr.length === 0) return 0;
 
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const recent = records.filter(r => r.time >= cutoff);
+  const recent = arr.filter(r => r.time >= cutoff);
   if (recent.length === 0) return 0;
 
   const avgRate = recent.reduce((sum, r) => sum + r.rate, 0) / recent.length;
 
-  // 推断结算间隔
-  let intervalHours = 8; // 默认
+  // 推断结算间隔（默认 8 小时）
+  let intervalHours = 8;
   if (recent.length >= 2) {
     const intervals: number[] = [];
     for (let i = 1; i < Math.min(recent.length, 5); i++) {
       intervals.push(Math.abs(recent[i].time - recent[i - 1].time));
     }
     const avgIntervalMs = intervals.reduce((s, v) => s + v, 0) / intervals.length;
+    // 由于我们每 5 分钟采样一次，但实际结算是 4h/8h
+    // 使用 8h 作为默认（除非所有数据点之间正好隔 4h）
     const inferred = Math.round(avgIntervalMs / (1000 * 60 * 60));
-    if (inferred >= 1 && inferred <= 24) intervalHours = inferred;
+    if (inferred >= 3 && inferred <= 24) intervalHours = inferred;
+    // 但我们的采样频率是 5 分钟，不能用来推断结算间隔
+    // 所以固定 8 小时
+    intervalHours = 8;
   }
 
-  const cyclesPerDay = 24 / intervalHours;
-  return avgRate * cyclesPerDay * 365;
+  return avgRate * (24 / intervalHours) * 365;
 }
 
-/**
- * 批量获取多个 asset 的资金费率统计
- * @param assets - 基础币种列表，如 ['BTC', 'ETH', 'SOL']
- * @returns Map<asset, FundingStats>
- */
-// Binance/Bybit 部分小币种合约 ticker 带 1000 前缀（如 1000PEPEUSDT, 1000BONKUSDT）
+// 1000x 前缀映射
 const EXCHANGE_1000X_ASSETS = new Set([
   'PEPE', 'BONK', 'SHIB', 'FLOKI', 'LUNC', 'SATS', 'RATS', 'CAT',
   'CHEEMS', 'MOGCOIN', 'WHY', 'X', 'APU',
 ]);
 
+/**
+ * 批量获取多个 asset 的资金费率统计
+ * 只需 2 次 API 调用（Binance premiumIndex + Bybit tickers）
+ */
 export async function batchGetFundingStats(assets: string[]): Promise<Map<string, FundingStats>> {
+  const snapshot = await getLatestSnapshot();
+  const store = getStore();
   const result = new Map<string, FundingStats>();
 
-  // 构建 symbol 列表，处理 Binance/Bybit 的 1000x 命名
-  const entries = assets.map(a => {
+  for (const a of assets) {
     const upper = a.toUpperCase();
-    const binanceSymbol = EXCHANGE_1000X_ASSETS.has(upper) ? `1000${upper}USDT` : `${upper}USDT`;
-    const bybitSymbol = EXCHANGE_1000X_ASSETS.has(upper) ? `1000${upper}USDT` : `${upper}USDT`;
-    return { asset: upper, binanceSymbol, bybitSymbol };
-  });
+    const is1000x = EXCHANGE_1000X_ASSETS.has(upper);
+    const bnSymbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
+    const bySymbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
 
-  // 批量请求，每批 10 个，避免限流
-  const batchSize = 10;
-  const delay = 200;
+    const bnKey = `bn:${bnSymbol}`;
+    const byKey = `by:${bySymbol}`;
 
-  for (let i = 0; i < entries.length; i += batchSize) {
-    const batch = entries.slice(i, i + batchSize);
+    // 如果有累积历史（>1 个点），用历史计算平均值
+    // 否则用最新快照的单点费率年化
+    const bnHistory = store.history.get(bnKey);
+    const byHistory = store.history.get(byKey);
 
-    const promises = batch.map(async ({ asset, binanceSymbol, bybitSymbol }) => {
-      const [binanceHistory, bybitHistory] = await Promise.all([
-        getBinanceFundingHistory(binanceSymbol),
-        getBybitFundingHistory(bybitSymbol),
-      ]);
+    let binance3d: number, binance7d: number;
+    let bybit3d: number, bybit7d: number;
 
-      const stats: FundingStats = {
-        binance3d: calcAvgApr(binanceHistory, 3),
-        binance7d: calcAvgApr(binanceHistory, 7),
-        bybit3d: calcAvgApr(bybitHistory, 3),
-        bybit7d: calcAvgApr(bybitHistory, 7),
-      };
-
-      return { asset, stats };
-    });
-
-    const batchResults = await Promise.all(promises);
-    batchResults.forEach(({ asset, stats }) => {
-      result.set(asset, stats);
-    });
-
-    if (i + batchSize < entries.length) {
-      await new Promise(resolve => setTimeout(resolve, delay));
+    if (bnHistory && bnHistory.length > 1) {
+      binance3d = calcAvgAprFromHistory(bnKey, 3);
+      binance7d = calcAvgAprFromHistory(bnKey, 7);
+    } else {
+      // 单点：直接年化
+      const rate = snapshot.binance.get(bnSymbol) ?? 0;
+      const apr = rate * 3 * 365; // 8h 结算 → 每天 3 次
+      binance3d = apr;
+      binance7d = apr;
     }
+
+    if (byHistory && byHistory.length > 1) {
+      bybit3d = calcAvgAprFromHistory(byKey, 3);
+      bybit7d = calcAvgAprFromHistory(byKey, 7);
+    } else {
+      const rate = snapshot.bybit.get(bySymbol) ?? 0;
+      const apr = rate * 3 * 365;
+      bybit3d = apr;
+      bybit7d = apr;
+    }
+
+    result.set(upper, { binance3d, binance7d, bybit3d, bybit7d });
   }
+
+  const withData = [...result.values()].filter(s => s.binance3d !== 0 || s.bybit3d !== 0).length;
+  console.log(`[funding] ${withData}/${result.size} have data (history points: ${store.history.size})`);
 
   return result;
 }
