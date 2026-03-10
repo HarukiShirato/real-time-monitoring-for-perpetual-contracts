@@ -1,0 +1,13 @@
+{
+  "SKY": {
+    "apr": 0.10742709,
+    "source": "sky-protocol",
+    "updatedAt": 1773157505883
+  },
+  "HYPE": {
+    "apr": 0.02184438667916666,
+    "source": "hyperliquid-validators",
+    "updatedAt": 1773157505052
+  },
+  "collectedAt": 1773157505883
+}

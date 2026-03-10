@@ -1,29 +1,34 @@
-import axios from "axios";
+import fs from "fs";
+import path from "path";
 
-const SKY_API = "https://info-sky.blockanalitica.com/api/v1/overall/";
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const DATA_FILE = path.join(process.cwd(), "data", "staking-rewards.json");
+const FILE_CACHE_TTL = 60 * 1000; // re-read file every 60s
 
 let cache: { data: Map<string, number>; ts: number } | null = null;
 
 /**
- * Fetch native staking reward rates from protocol APIs.
- * Currently supports SKY only.
+ * Read native staking reward rates from data/staking-rewards.json
+ * (written by scripts/staking-collector.js every 8 hours)
  * Returns Map<asset, apr> where apr is decimal (e.g. 0.1074 = 10.74%)
  */
 export async function getStakingRewardsMap(): Promise<Map<string, number>> {
-  if (cache && Date.now() - cache.ts < CACHE_TTL) return cache.data;
+  if (cache && Date.now() - cache.ts < FILE_CACHE_TTL) return cache.data;
 
   const result = new Map<string, number>();
   try {
-    const res = await axios.get(SKY_API, { timeout: 10000 });
-    const overall = Array.isArray(res.data) ? res.data[0] : res.data;
-    const skyApy = parseFloat(overall?.sky_sky_apy || "0");
-    if (skyApy > 0) {
-      result.set("SKY", skyApy);
-      console.log(`[staking] SKY native staking APY: ${(skyApy * 100).toFixed(2)}%`);
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+      for (const [key, val] of Object.entries(raw)) {
+        if (key === "collectedAt") continue;
+        const entry = val as { apr: number; source: string; updatedAt: number };
+        if (entry.apr > 0) {
+          result.set(key, entry.apr);
+        }
+      }
+      console.log(`[staking] Loaded ${result.size} staking rates from file`);
     }
   } catch (e: any) {
-    console.error(`[staking] Failed to fetch SKY staking rate: ${e.message}`);
+    console.error(`[staking] Failed to read staking data: ${e.message}`);
   }
 
   cache = { data: result, ts: Date.now() };

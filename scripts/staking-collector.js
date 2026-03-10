@@ -1,0 +1,101 @@
+/**
+ * Staking Rewards Collector
+ * Fetches native staking rates for SKY and HYPE every 8 hours
+ * Writes to data/staking-rewards.json
+ */
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+
+const DATA_FILE = path.join(__dirname, "..", "data", "staking-rewards.json");
+
+async function fetchSkyStaking() {
+  try {
+    const res = await axios.get("https://info-sky.blockanalitica.com/api/v1/overall/", { timeout: 10000 });
+    const overall = Array.isArray(res.data) ? res.data[0] : res.data;
+    const apr = parseFloat(overall?.sky_sky_apy || "0");
+    if (apr > 0) {
+      console.log(`[staking] SKY native staking APY: ${(apr * 100).toFixed(2)}%`);
+      return { asset: "SKY", apr, source: "sky-protocol", updatedAt: Date.now() };
+    }
+  } catch (e) {
+    console.error(`[staking] SKY fetch failed: ${e.message}`);
+  }
+  return null;
+}
+
+async function fetchHypeStaking() {
+  try {
+    const res = await axios.post("https://api.hyperliquid.xyz/info", 
+      { type: "validatorSummaries" },
+      { headers: { "Content-Type": "application/json" }, timeout: 10000 }
+    );
+    if (Array.isArray(res.data) && res.data.length > 0) {
+      // Get average APR across active validators (use "month" stats for stability)
+      const activeValidators = res.data.filter(v => v.isActive && !v.isJailed);
+      let totalApr = 0;
+      let count = 0;
+      for (const v of activeValidators) {
+        const monthStats = v.stats?.find(s => s[0] === "month");
+        if (monthStats) {
+          const apr = parseFloat(monthStats[1].predictedApr || "0");
+          if (apr > 0) {
+            totalApr += apr;
+            count++;
+          }
+        }
+      }
+      if (count > 0) {
+        const avgApr = totalApr / count;
+        console.log(`[staking] HYPE avg staking APR: ${(avgApr * 100).toFixed(2)}% (${count} active validators)`);
+        return { asset: "HYPE", apr: avgApr, source: "hyperliquid-validators", updatedAt: Date.now() };
+      }
+    }
+  } catch (e) {
+    console.error(`[staking] HYPE fetch failed: ${e.message}`);
+  }
+  return null;
+}
+
+async function collect() {
+  console.log(`[staking] Starting collection at ${new Date().toISOString()}`);
+  
+  // Read existing data
+  let existing = {};
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      existing = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+    }
+  } catch (e) {
+    console.error(`[staking] Failed to read existing data: ${e.message}`);
+  }
+
+  const results = await Promise.all([fetchSkyStaking(), fetchHypeStaking()]);
+  
+  for (const r of results) {
+    if (r) {
+      existing[r.asset] = { apr: r.apr, source: r.source, updatedAt: r.updatedAt };
+    }
+  }
+  
+  existing.collectedAt = Date.now();
+  
+  // Ensure data dir exists
+  const dir = path.dirname(DATA_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  
+  fs.writeFileSync(DATA_FILE, JSON.stringify(existing, null, 2));
+  console.log(`[staking] Saved to ${DATA_FILE}`);
+}
+
+// Run immediately on start
+collect().then(() => {
+  console.log("[staking] Initial collection done");
+});
+
+// Then every 8 hours
+setInterval(() => {
+  collect().catch(e => console.error("[staking] Collection error:", e.message));
+}, 8 * 60 * 60 * 1000);
+
+console.log("[staking] Collector started, interval: 8 hours");

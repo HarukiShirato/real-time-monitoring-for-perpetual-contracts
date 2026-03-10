@@ -169,10 +169,6 @@ export async function GET() {
         if (e3d > bestEarn3d) bestEarn3d = e3d;
         if (e7d > bestEarn7d) bestEarn7d = e7d;
       }
-      // Native staking competes with earn (pick the higher one)
-      const stkApr = stakingMap.get(asset) ?? 0;
-      if (stkApr > bestEarn3d) bestEarn3d = stkApr;
-      if (stkApr > bestEarn7d) bestEarn7d = stkApr;
 
       const md = marketDataMap.get(asset + 'USDT');
 
