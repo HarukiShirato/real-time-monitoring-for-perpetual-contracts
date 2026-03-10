@@ -57,6 +57,39 @@ async function fetchHypeStaking() {
   return null;
 }
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchBinanceOI() {
+  const result = {};
+  try {
+    // Get all symbols + prices from premiumIndex
+    const res = await axios.get("https://fapi.binance.com/fapi/v1/premiumIndex", { timeout: 15000 });
+    const symbols = res.data.filter(i => i.symbol.endsWith("USDT"));
+    const priceMap = {};
+    for (const s of symbols) priceMap[s.symbol] = parseFloat(s.markPrice || "0");
+
+    let ok = 0;
+    for (const s of symbols) {
+      try {
+        const oiRes = await axios.get("https://fapi.binance.com/fapi/v1/openInterest", {
+          params: { symbol: s.symbol }, timeout: 5000,
+        });
+        const qty = parseFloat(oiRes.data?.openInterest || "0");
+        const price = priceMap[s.symbol] || 0;
+        if (qty > 0 && price > 0) {
+          result[s.symbol] = qty * price;
+          ok++;
+        }
+      } catch {}
+      await sleep(200);
+    }
+    console.log("[staking] Binance OI: " + ok + " symbols collected");
+  } catch (e) {
+    console.error("[staking] Binance OI fetch failed: " + e.message);
+  }
+  return result;
+}
+
 async function collect() {
   console.log(`[staking] Starting collection at ${new Date().toISOString()}`);
   
@@ -78,6 +111,12 @@ async function collect() {
     }
   }
   
+  // Fetch Binance OI
+  const binanceOI = await fetchBinanceOI();
+  if (Object.keys(binanceOI).length > 0) {
+    existing.binanceOI = binanceOI;
+  }
+
   existing.collectedAt = Date.now();
   
   // Ensure data dir exists

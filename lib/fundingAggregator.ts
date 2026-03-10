@@ -211,11 +211,21 @@ export async function getOpenInterestMap(assets: string[]): Promise<Map<string, 
   const snapshot = await getLatestSnapshot();
   const result = new Map<string, ExchangeOI>();
 
+  // Read Binance OI from staking-rewards.json (collected every 8h)
+  let fileBinanceOI: Record<string, number> = {};
+  try {
+    const stakingFile = path.join(process.cwd(), 'data', 'staking-rewards.json');
+    if (fs.existsSync(stakingFile)) {
+      const raw = JSON.parse(fs.readFileSync(stakingFile, 'utf-8'));
+      fileBinanceOI = raw.binanceOI || {};
+    }
+  } catch {}
+
   for (const a of assets) {
     const upper = a.toUpperCase();
     const is1000x = EXCHANGE_1000X_ASSETS.has(upper);
     const symbol = is1000x ? `1000${upper}USDT` : `${upper}USDT`;
-    const binanceOI = snapshot.binanceOI.get(symbol) ?? 0;
+    const binanceOI = fileBinanceOI[symbol] ?? snapshot.binanceOI.get(symbol) ?? 0;
     const bybitOI = snapshot.bybitOI.get(symbol) ?? 0;
     if (binanceOI > 0 || bybitOI > 0) {
       result.set(upper, { binance: binanceOI, bybit: bybitOI });

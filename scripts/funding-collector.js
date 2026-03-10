@@ -76,6 +76,7 @@ async function collectBinance() {
         store.binance[symbol] = rates;
         success++;
       }
+
     } catch {
       fail++;
     }
