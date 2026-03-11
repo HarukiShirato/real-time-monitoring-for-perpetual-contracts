@@ -84,7 +84,7 @@ export async function GET() {
       'MKUSD', 'USD0',
       'CMETH', 'METH', 'BNSOL', 'RLUSD', 'WBETH', 'WBTC', 'WETH', 'STETH', 'WSTETH', 'CBETH', 'RETH', 'MSOL', 'JITOSOL',
       'U', 'XUSD', 'BBSOL', 'BTTC', 'NEIROCTO', 'USD1',
-      'PI', 'IQ', 'ALCX', 'WAN', 'CITY', 'PSG', 'LAZIO', 'BIFI', 'SANTOS',
+      'PI', 'IQ', 'ALCX', 'WAN', 'CITY', 'PSG', 'LAZIO', 'BIFI', 'SANTOS', 'OSMO', 'ADX',
     ]);
     const assetMap = new Map<string, Map<string, number>>();
 
