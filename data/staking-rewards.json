@@ -3481,5 +3481,14 @@
       "totalStaked": 199120000,
       "unstakingDays": 7
     }
+  },
+  "RESOLV": {
+    "apr": 0.1711,
+    "source": "resolv-app-manual",
+    "updatedAt": 1773206242827,
+    "meta": {
+      "totalStaked": 52233065,
+      "unstakingDays": 14
+    }
   }
 }
