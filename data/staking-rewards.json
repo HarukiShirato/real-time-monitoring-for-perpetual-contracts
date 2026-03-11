@@ -3499,5 +3499,16 @@
       "totalStaked": 61815951,
       "unstakingDays": 7
     }
+  },
+  "SOLV": {
+    "apr": 2.7,
+    "source": "solv-foundation-manual",
+    "updatedAt": 1773207437000,
+    "meta": {
+      "globalCap": 550000000,
+      "unstakingDays": 22,
+      "rewardAsset": "vSOLV",
+      "network": "BNB Chain"
+    }
   }
 }
