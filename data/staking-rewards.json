@@ -3490,5 +3490,14 @@
       "totalStaked": 52233065,
       "unstakingDays": 14
     }
+  },
+  "BB": {
+    "apr": 0.12,
+    "source": "bouncebit-farm-manual",
+    "updatedAt": 1773207086388,
+    "meta": {
+      "totalStaked": 61815951,
+      "unstakingDays": 7
+    }
   }
 }
