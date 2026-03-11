@@ -36,6 +36,7 @@ export interface CombinedEarnRow {
   hyperliquidOI: number | null;
   marketCap: number | null;
   stakingApr: number | null;
+  stakingUnstakingDays: number | null;
 }
 
 type SortKey = 'asset' | 'bestEarn3d' | 'bestEarn7d' | 'bestFunding3d' | 'bestFunding7d' | 'combined3d' | 'combined7d' | 'marketCap' | 'none';
@@ -301,7 +302,12 @@ export default function EarnTable({ data }: EarnTableProps) {
                               <div className="flex-1 max-w-xs">
                                 <div className="text-xs uppercase tracking-wider text-brand-text-secondary mb-2">Native Staking</div>
                                 <div className="flex items-center justify-between gap-3 text-sm">
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-purple-500/10 text-purple-400 border-purple-500/20">Staking</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-purple-500/10 text-purple-400 border-purple-500/20">Staking</span>
+                                    {item.stakingUnstakingDays != null && item.stakingUnstakingDays > 0 && (
+                                      <span className="text-[9px] text-brand-text-muted opacity-70">{item.stakingUnstakingDays}d unstake</span>
+                                    )}
+                                  </div>
                                   <span className="text-brand-success font-semibold font-mono">{formatPct(item.stakingApr)}</span>
                                 </div>
                               </div>

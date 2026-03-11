@@ -5,7 +5,7 @@ import { getOkxEarnProducts } from '@/lib/exchanges/okxEarn';
 // Market cap now from file (Binance products, collected every 8h)
 import { batchGetFundingStats, getOpenInterestMap, ExchangeOI } from '@/lib/fundingAggregator';
 import { getOkxRealEarnRates } from '@/lib/okxRealEarn';
-import { getStakingRewardsMap, getMarketCapsFromFile } from "@/lib/stakingRewards";
+import { getStakingRewardsMap, getStakingInfoMap, getMarketCapsFromFile } from "@/lib/stakingRewards";
 
 // 跳过构建时预渲染，由进程级缓存 + funding 缓存 控制刷新
 export const dynamic = 'force-dynamic';
@@ -45,6 +45,7 @@ export interface CombinedEarnRow {
   hyperliquidOI: number | null;
   marketCap: number | null;
   stakingApr: number | null;
+  stakingUnstakingDays: number | null;
 }
 
 /** 带超时的 Promise 包装 */
@@ -83,6 +84,7 @@ export async function GET() {
       'MKUSD', 'USD0',
       'CMETH', 'METH', 'BNSOL', 'RLUSD', 'WBETH', 'WBTC', 'WETH', 'STETH', 'WSTETH', 'CBETH', 'RETH', 'MSOL', 'JITOSOL',
       'U', 'XUSD', 'BBSOL', 'BTTC', 'NEIROCTO', 'USD1',
+      'PI', 'IQ', 'ALCX', 'WAN', 'CITY', 'PSG', 'LAZIO', 'BIFI',
     ]);
     const assetMap = new Map<string, Map<string, number>>();
 
@@ -103,12 +105,13 @@ export async function GET() {
     const symbols = allAssets.map(a => a + 'USDT');
 
     // 并行获取：资金费率 + OI + 市值数据 + OKX 真实收益率
-    const [fundingMap, oiMap, marketDataMap, okxRealMap, stakingMap] = await Promise.all([
+    const [fundingMap, oiMap, marketDataMap, okxRealMap, stakingMap, stakingInfoMap] = await Promise.all([
       withTimeout(batchGetFundingStats(allAssets), 55000, new Map()),
       withTimeout(getOpenInterestMap(allAssets), 55000, new Map()),
       withTimeout(getMarketCapsFromFile(), 10000, new Map()),
       withTimeout(getOkxRealEarnRates(), 15000, new Map()),
       withTimeout(getStakingRewardsMap(), 10000, new Map()),
+      withTimeout(getStakingInfoMap(), 10000, new Map()),
     ]);
 
     const rows: CombinedEarnRow[] = [];
@@ -197,6 +200,7 @@ export async function GET() {
         bybitOI: oiMap.get(asset)?.bybit ?? null,
         hyperliquidOI: oiMap.get(asset)?.hyperliquid ?? null,
         stakingApr: stakingMap.get(asset) ?? null,
+        stakingUnstakingDays: stakingInfoMap.get(asset)?.unstakingDays ?? null,
         marketCap: md?.mcap ?? null,
       });
     }

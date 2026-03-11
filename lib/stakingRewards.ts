@@ -36,6 +36,45 @@ export async function getStakingRewardsMap(): Promise<Map<string, number>> {
 }
 
 
+
+export interface StakingInfo {
+  apr: number;
+  source: string;
+  unstakingDays?: number;
+  totalStaked?: number;
+}
+
+let infoCache: { data: Map<string, StakingInfo>; ts: number } | null = null;
+
+export async function getStakingInfoMap(): Promise<Map<string, StakingInfo>> {
+  if (infoCache && Date.now() - infoCache.ts < FILE_CACHE_TTL) return infoCache.data;
+
+  const result = new Map<string, StakingInfo>();
+  const unstakingDays: Record<string, number> = { ETHFI: 10 };
+
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+      for (const [key, val] of Object.entries(raw)) {
+        if (key === "collectedAt" || key === "marketCaps" || key === "binanceOI" || key.includes("_")) continue;
+        const entry = val as any;
+        if (entry.apr > 0) {
+          const info: StakingInfo = { apr: entry.apr, source: entry.source || "" };
+          if (unstakingDays[key]) info.unstakingDays = unstakingDays[key];
+          if (entry.meta?.totalStaked) info.totalStaked = entry.meta.totalStaked;
+          if (entry.meta?.unstakingDays) info.unstakingDays = entry.meta.unstakingDays;
+          result.set(key, info);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[staking] Failed to read staking info:", e);
+  }
+
+  infoCache = { data: result, ts: Date.now() };
+  return result;
+}
+
 export interface FileMcap {
   mcap: number;
   price: number;
