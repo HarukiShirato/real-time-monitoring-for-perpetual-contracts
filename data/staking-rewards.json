@@ -3510,5 +3510,14 @@
       "rewardAsset": "vSOLV",
       "network": "BNB Chain"
     }
+  },
+  "BARD": {
+    "apr": 0.3,
+    "source": "lombard-finance-manual",
+    "updatedAt": 1773207918000,
+    "meta": {
+      "totalStaked": 887372,
+      "unstakingDays": 21
+    }
   }
 }
