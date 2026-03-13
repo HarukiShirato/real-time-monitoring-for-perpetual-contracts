@@ -136,6 +136,40 @@ async function fetchEthfiStaking() {
   return null;
 }
 
+async function fetchAaveStaking() {
+  const rpcs = ["https://rpc.ankr.com/eth", "https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com"];
+  const headers = { "Content-Type": "application/json" };
+  const stkAAVE = "0x4da27a545c0c5B758a6BA100e3a049001de870f5";
+  for (const RPC of rpcs) {
+    try {
+      const tsRes = await axios.post(RPC, {
+        jsonrpc: "2.0", method: "eth_call", id: 1,
+        params: [{ to: stkAAVE, data: "0x18160ddd" }, "latest"]
+      }, { headers, timeout: 20000 });
+      const assetData = "0xf11b8188000000000000000000000000" + stkAAVE.slice(2);
+      const adRes = await axios.post(RPC, {
+        jsonrpc: "2.0", method: "eth_call", id: 2,
+        params: [{ to: stkAAVE, data: assetData }, "latest"]
+      }, { headers, timeout: 20000 });
+      if (!tsRes.data.result || !adRes.data.result || adRes.data.result === "0x") continue;
+      const totalSupply = parseInt(tsRes.data.result, 16) / 1e18;
+      const hex = adRes.data.result.slice(2);
+      const emissionPerSecond = parseInt(hex.slice(0, 64), 16) / 1e18;
+      if (totalSupply > 0 && emissionPerSecond > 0) {
+        const apr = emissionPerSecond * 365.25 * 86400 / totalSupply;
+        console.log(`[staking] AAVE Safety Module APR: ${(apr * 100).toFixed(2)}% (staked: ${(totalSupply / 1e6).toFixed(2)}M AAVE)`);
+        return {
+          asset: "AAVE", apr, source: "aave-safety-module", updatedAt: Date.now(),
+          meta: { totalStaked: totalSupply, unstakingDays: 20 }
+        };
+      }
+    } catch (e) {
+      console.error(`[staking] AAVE fetch failed (${RPC}): ${e.message}`);
+    }
+  }
+  return null;
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 
@@ -256,7 +290,7 @@ async function collect() {
     console.error(`[staking] Failed to read existing data: ${e.message}`);
   }
 
-  const results = await Promise.all([fetchSkyStaking(), fetchHypeStaking(), fetchLitStaking(), fetchEthfiStaking()]);
+  const results = await Promise.all([fetchSkyStaking(), fetchHypeStaking(), fetchLitStaking(), fetchEthfiStaking(), fetchAaveStaking()]);
   
   for (const r of results) {
     if (r) {
